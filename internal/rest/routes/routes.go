@@ -35,6 +35,7 @@ func BindRouter(router *router.Router[*core.RequestEvent]) {
 
 	group := router.Group("/api")
 	group.Bind(apis.RequireSuperuserAuth())
+	handlers.BindDNS(group, accessRepo)
 	handlers.NewCertificatesHandler(group, certificateSvc)
 	handlers.NewWorkflowsHandler(group, workflowSvc)
 	handlers.NewStatisticsHandler(group, statisticsSvc)

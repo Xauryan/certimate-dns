@@ -1,6 +1,6 @@
 # Certimate DNS 开发基线
 
-本分支从 Certimate v0.4.38 建立。当前可运行的功能来自上游 Certimate。DNS 管理是本分支的开发目标，下面的验收项用于判断何时可以发布首个 DNS 功能版本。
+本分支从 Certimate v0.4.38 建立。本分支已实现 Cloudflare DNS 管理。三家适配器的完整验收条件见下文。
 
 ## 复现基线
 
@@ -17,6 +17,15 @@ CGO_ENABLED=0 go build -mod=readonly -trimpath -o dist/certimate .
 ```
 
 浏览器打开 http://127.0.0.1:8090/ 。健康检查在 /api/health。CI 在 GitHub 托管的标准 ubuntu-26.04 x64 机器上构建相同的前端和 Go 可执行文件，再用临时空库检查首页和健康接口。CI 的权限为读取仓库内容，测试使用本地数据。
+
+## 使用 Cloudflare DNS 管理
+
+管理员进入「DNS 解析管理」，选择已有的 Cloudflare 授权，再点击域名。Zone 与记录按服务商分页，记录名搜索在服务端执行。读取 Zone 需要 Zone Read，读取和导出记录需要 DNS Read，写入需要相应 Zone 的 DNS Edit 权限。配置了独立 Zone token 时，域名枚举使用该 token，记录操作使用主 token。
+
+- 新增支持 A、AAAA、CNAME 和 TXT。填写完整记录名，TTL 为 1 时使用自动值。编辑提交记录值和 TTL，保留 Cloudflare 的代理状态、标签及备注。
+- 删除确认框显示类型、名称和记录值。服务商调用的操作结果进入应用日志，日志使用资源 ID 标识操作。请求中断时先刷新列表核对结果。
+- 「导出 BIND 区域文件」从 Cloudflare 获取整个 Zone，与当前列表页和名称筛选独立。
+- DNS-01 工作流继续通过相同的 Cloudflare 授权记录取凭据。当前功能复用原有数据库，无需迁移账号。
 
 ## 源码映射
 

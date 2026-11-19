@@ -12,6 +12,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarRightCollapse,
   IconMenu2,
+  IconWorld,
   IconPower,
   IconSettings,
 } from "@tabler/icons-react";
@@ -185,6 +186,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
       [MENU_KEY_HOME, "dashboard.page.heading", <IconHome size="1em" />],
       [MENU_KEY_WORKFLOWS, "workflow.page.heading", <IconHierarchy3 size="1em" />],
       [MENU_KEY_CERTIFICATES, "certificate.page.heading", <IconCertificate size="1em" />],
+      ["/dns", "dns.heading", <IconWorld size="1em" />],
       [MENU_KEY_ACCESSES, "access.page.heading", <IconFingerprint size="1em" />],
       [MENU_KEY_PRESETS, "preset.page.heading", <IconCodeDots size="1em" />],
       [MENU_KEY_SETTINGS, "settings.page.heading", <IconSettings size="1em" />],

@@ -5,6 +5,7 @@ import AccessNew from "@/pages/accesses/AccessNew";
 import AuthLayout from "@/pages/AuthLayout";
 import CertificateList from "@/pages/certificates/CertificateList";
 import ConsoleLayout from "@/pages/ConsoleLayout";
+import DNSManager from "@/pages/dns/DNSManager";
 import Dashboard from "@/pages/dashboard/Dashboard";
 import ErrorLayout from "@/pages/ErrorLayout";
 import Login from "@/pages/login/Login";
@@ -31,6 +32,7 @@ export const router = createHashRouter([
         path: "/",
         element: <Dashboard />,
       },
+      { path: "/dns", element: <DNSManager /> },
       {
         path: "/accesses",
         element: <AccessList />,
