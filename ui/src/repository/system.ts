@@ -2,6 +2,20 @@
 
 const pb = getPocketBase();
 
+export const siteThemes = ["light", "dark", "system"] as const;
+
+export type SiteTheme = (typeof siteThemes)[number];
+
+export const isSiteTheme = (value: unknown): value is SiteTheme => siteThemes.some((theme) => theme === value);
+
+export const getSiteAppearance = async () => {
+  const appearance = await pb.send<{ theme: SiteTheme }>("/api/appearance", { headers: { Authorization: "" }, requestKey: null });
+  if (!isSiteTheme(appearance?.theme)) throw new Error("Invalid site appearance");
+  return appearance;
+};
+
+export const saveSiteAppearance = (theme: SiteTheme) => pb.send<{ theme: SiteTheme }>("/api/appearance", { method: "PUT", body: { theme }, requestKey: null });
+
 export const listCronJobs = () => {
   return pb.crons
     .getFullList({

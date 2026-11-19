@@ -232,6 +232,13 @@ type Page struct {
 
 const pageSize = 25
 
+// CountDomains counts the entries visible in the unfiltered admin catalog.
+func CountDomains(ctx context.Context, app core.App) (int, error) {
+	var total int
+	err := app.DB().NewQuery("SELECT count(*)" + fromZones).WithContext(ctx).Row(&total)
+	return total, err
+}
+
 // Due dates are calendar days in UTC. An overdue domain remains in the
 // reminders view until its expiry date is corrected or reminders are disabled.
 const dueClause = ` AND z.present=1 AND d.disabled=0 AND z.reminderEnabled=1 AND z.expiresOn<>''

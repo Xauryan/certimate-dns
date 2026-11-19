@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Divider, Form, Radio, type RadioChangeEvent, Select, theme } from "antd";
+import { App, Divider, Form, Radio, type RadioChangeEvent, Select, theme } from "antd";
 import { produce } from "immer";
 
 import { useAppLocaleMenuItems } from "@/components/AppLocale";
 import { useAppThemeMenuItems } from "@/components/AppTheme";
 import { useAppSettings, useBrowserTheme } from "@/hooks";
+import { type SiteTheme, siteThemes } from "@/repository/system";
 import { withBasePath } from "@/utils/url";
 
 const SettingsAppearance = () => {
@@ -15,6 +16,11 @@ const SettingsAppearance = () => {
     <>
       <h2>{t("settings.appearance.theme.title")}</h2>
       <SettingsAppearanceTheme className="md:max-w-160" />
+
+      <Divider />
+
+      <h2>{t("settings.appearance.site_theme.title")}</h2>
+      <SettingsSiteTheme />
 
       <Divider />
 
@@ -41,36 +47,69 @@ const SettingsAppearanceTheme = ({ className, style }: { className?: string; sty
 
   const { themeMode, setThemeMode } = useBrowserTheme();
   const themeItems = useAppThemeMenuItems();
-  const [themeChanged, setThemeChanged] = useState(false);
-
-  const handleChange = (e: RadioChangeEvent) => {
-    if (e.target.value !== themeMode) {
-      setThemeChanged(true);
-      setThemeMode(e.target.value);
-    }
-  };
+  const handleChange = (e: RadioChangeEvent) => setThemeMode(e.target.value);
 
   return (
     <div className={className} style={style}>
       <Form layout="vertical">
-        <Form.Item extra={themeChanged ? t("settings.appearance.theme.form.value.extra") : void 0}>
+        <Form.Item>
           <Radio.Group block value={themeMode} onChange={handleChange}>
             <div className="flex w-full items-center gap-4 max-md:flex-wrap">
-              {themeItems.map((item) => (
-                <div className="relative max-w-44 flex-1/3 max-md:flex-1/2 max-sm:flex-1" key={item.key}>
-                  <div className="overflow-hidden rounded-lg border border-solid" style={{ borderColor: themeToken.colorBorder }}>
-                    <img className="mb-2 w-full" src={withBasePath(`/imgs/themes/${item.key}.png`)} />
-                    <div className="mb-2 px-2">
-                      <Radio value={item.key}>{item.label}</Radio>
+              {themeItems
+                .filter((item) => item.key !== "site")
+                .map((item) => (
+                  <div className="relative max-w-44 flex-1/3 max-md:flex-1/2 max-sm:flex-1" key={item.key}>
+                    <div className="overflow-hidden rounded-lg border border-solid" style={{ borderColor: themeToken.colorBorder }}>
+                      <img className="mb-2 w-full" src={withBasePath(`/imgs/themes/${item.key}.png`)} />
+                      <div className="mb-2 px-2">
+                        <Radio value={item.key}>{item.label}</Radio>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
             </div>
+            <Radio className="mt-3" value="site">
+              {t("common.theme.site")}
+            </Radio>
           </Radio.Group>
         </Form.Item>
       </Form>
     </div>
+  );
+};
+
+const SettingsSiteTheme = () => {
+  const { t } = useTranslation();
+  const { message } = App.useApp();
+  const { siteAppearance, setSiteTheme } = useBrowserTheme();
+  const { data, error, loading } = siteAppearance;
+  const [saving, setSaving] = useState(false);
+
+  const handleChange = async (value: SiteTheme) => {
+    setSaving(true);
+    try {
+      await setSiteTheme(value);
+      message.success(t("common.text.saved"));
+    } catch {
+      message.error(t("settings.appearance.site_theme.save_error"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Form className="md:max-w-160" layout="vertical">
+      <Form.Item extra={error ? t("settings.appearance.site_theme.load_error") : t("settings.appearance.site_theme.tips")}>
+        <Select<SiteTheme>
+          aria-label={t("settings.appearance.site_theme.title")}
+          disabled={loading || saving || !data}
+          loading={loading || saving}
+          onChange={handleChange}
+          options={siteThemes.map((value) => ({ value, label: t(`common.theme.${value}`) }))}
+          value={data?.theme}
+        />
+      </Form.Item>
+    </Form>
   );
 };
 

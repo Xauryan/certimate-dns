@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import { Alert, App, Button, Checkbox, Descriptions, Drawer, Form, Input, InputNumber, Popconfirm, Select, Space, Table, Tabs, Tag, Typography } from "antd";
 
 import { dnsRequest } from "@/api/dns";
@@ -63,7 +64,7 @@ function PlanView({ plan, zh }: { plan: Plan; zh: boolean }) {
   );
 }
 
-function Panel({ provider, access, zone, onApplied, zh }: Props & { zh: boolean }) {
+function Panel({ provider, access, zone, onApplied, zh, initialTab }: Props & { zh: boolean; initialTab: string }) {
   const { message } = App.useApp();
   const label = (cn: string, en: string) => (zh ? cn : en);
   const lineLabel = (value: string) =>
@@ -89,7 +90,7 @@ function Panel({ provider, access, zone, onApplied, zh }: Props & { zh: boolean 
   const [feed, setFeed] = useState<Record<string, string[]>>();
   const [quota, setQuota] = useState<{ unlimited: boolean; remaining: number }>();
   const [plan, setPlan] = useState<Plan>();
-  const [tab, setTab] = useState("settings");
+  const [tab, setTab] = useState(initialTab);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
@@ -441,14 +442,26 @@ function Panel({ provider, access, zone, onApplied, zh }: Props & { zh: boolean 
 export default function DNSOptimize(props: Props) {
   const { i18n } = useTranslation();
   const [open, setOpen] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const showHistory = params.get("optimizer") === "history";
+  const initialTab = showHistory ? "history" : "settings";
+  const visible = open || showHistory;
+  const close = () => {
+    setOpen(false);
+    if (showHistory) {
+      const next = new URLSearchParams(params);
+      next.delete("optimizer");
+      setParams(next, { replace: true });
+    }
+  };
   const zh = i18n.language.toLowerCase().startsWith("zh");
   const title = zh ? "CDN 优选 IP" : "Ranked CDN addresses";
   if (![...carrierProviders, ...defaultProviders].includes(props.provider)) return null;
   return (
     <>
       <Button onClick={() => setOpen(true)}>{title}</Button>
-      <Drawer title={title + " · " + props.zone.name} open={open} onClose={() => setOpen(false)} size="large" destroyOnHidden>
-        {open && <Panel key={[props.provider, props.access, props.zone.id].join("/")} {...props} zh={zh} />}
+      <Drawer title={title + " · " + props.zone.name} open={visible} onClose={close} size="large" destroyOnHidden>
+        {visible && <Panel key={[props.provider, props.access, props.zone.id, initialTab].join("/")} {...props} zh={zh} initialTab={initialTab} />}
       </Drawer>
     </>
   );

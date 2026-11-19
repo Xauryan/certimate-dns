@@ -194,7 +194,7 @@ function RecordList({ base, zone, provider, canWrite, adminAccess, zonePage }: O
         )}
         <Button onClick={refresh}>{t("dns.refresh")}</Button>
         {response?.data && <DNSBatch base={base} zone={zone} canWrite={canWrite} onApplied={refresh} />}
-        {adminAccess && response?.data && <DNSOptimize provider={provider} access={adminAccess} zone={zone} onApplied={refresh} />}
+        {adminAccess && <DNSOptimize provider={provider} access={adminAccess} zone={zone} onApplied={refresh} />}
       </Space>
       {capability?.error && <Alert type="error" showIcon title={capability.error} />}
       {response?.error && <Alert type="error" showIcon title={response.error} />}

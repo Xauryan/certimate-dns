@@ -78,12 +78,13 @@
   "appearance": {
     "tab": "外观",
     "theme": {
-      "title": "主题",
-      "form": {
-        "value": {
-          "extra": "重新加载页面生效。"
-        }
-      }
+      "title": "浏览器主题"
+    },
+    "site_theme": {
+      "title": "站点默认主题",
+      "tips": "首次访问的浏览器和选择使用站点默认主题的浏览器将采用此设置。",
+      "load_error": "无法读取站点默认主题。",
+      "save_error": "无法保存站点默认主题。"
     },
     "language": {
       "title": "语言",

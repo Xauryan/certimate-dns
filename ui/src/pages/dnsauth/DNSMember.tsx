@@ -6,6 +6,7 @@ import { Alert, Button, Space, Table, Tabs, Typography } from "antd";
 
 import type { RecordModel } from "pocketbase";
 import { dnsRequest } from "@/api/dns";
+import AppTheme from "@/components/AppTheme";
 import { Records } from "@/pages/dns/DNSManager";
 
 import DNSMemberLogin from "@/pages/dnsidentity/DNSMemberLogin";
@@ -143,7 +144,8 @@ export default function DNSMember() {
         <Typography.Title level={3} style={{ margin: 0 }}>
           {t("dnsauth.portal")}
         </Typography.Title>
-        <Space>
+        <Space wrap>
+          <AppTheme.LinkButton />
           {!delegated && <Typography.Text>{record.email}</Typography.Text>}
           {!delegated && <MemberPassword />}
           <Button onClick={() => auth.clear()}>{t("common.menu.logout")}</Button>

@@ -13,6 +13,35 @@
     "enabled_workflows": "Active workflows"
   },
 
+  "dns_overview": {
+    "heading": "DNS operations",
+    "domains_one": "{{count}} DNS domain",
+    "domains_other": "{{count}} DNS domains",
+    "failover": "Failover monitors",
+    "optimization": "CDN address optimization",
+    "orders": "Commercial CA orders",
+    "deployments": "Certificate deployments",
+    "active": "Enabled",
+    "primary": "On primary",
+    "backup": "On backup",
+    "scheduled": "Scheduled changes",
+    "scheduler": "Scheduler",
+    "running": "Running",
+    "stale": "Heartbeat overdue",
+    "heartbeat": "Last check-in",
+    "no_heartbeat": "No heartbeat yet",
+    "last_result": "Latest task result",
+    "no_result": "No result yet",
+    "succeeded": "Succeeded",
+    "failed": "Failed",
+    "issue_failed": "Failed or cancelled",
+    "issued": "Issued",
+    "expiring": "Expires within 7 days",
+    "expired": "Expired",
+    "pending": "Pending",
+    "load_error": "Could not load the DNS overview."
+  },
+
   "shortcut": {
     "": "Shortcuts",
     "create_workflow": "Create new workflow",

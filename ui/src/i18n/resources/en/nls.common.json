@@ -46,6 +46,7 @@
   },
 
   "theme": {
+    "site": "Use site default",
     "light": "Light",
     "dark": "Dark",
     "system": "Auto"

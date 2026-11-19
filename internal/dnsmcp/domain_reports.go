@@ -45,7 +45,7 @@ func (s service) domainOverview(e *core.RequestEvent, grant scope, zones []dnsau
 	ctx := e.Request.Context()
 	if slices.Contains(grant.Actions, "dmonitor.read") {
 		var total, active, normal, failed int
-		err := e.App.DB().NewQuery(taskCTE+` SELECT count(*),count(*) FILTER(WHERE state='active'),count(*) FILTER(WHERE position='primary'),count(*) FILTER(WHERE position='backup') FROM tasks`).Bind(taskParams("failover", zones)).WithContext(ctx).Row(&total, &active, &normal, &failed)
+		err := e.App.DB().NewQuery(taskCTE+` SELECT count(*),`+monitorPositions+` FROM tasks`).Bind(taskParams("failover", zones)).WithContext(ctx).Row(&total, &active, &normal, &failed)
 		if err != nil {
 			return nil, upstream
 		}
@@ -63,7 +63,7 @@ func (s service) domainOverview(e *core.RequestEvent, grant scope, zones []dnsau
 	if slices.Contains(grant.Actions, "optimizeip.read") {
 		allowed, _ := json.Marshal(zones)
 		var active, success, failed int
-		err := e.App.DB().NewQuery(`SELECT count(*) FILTER(WHERE enabled=1),count(*) FILTER(WHERE status='success'),count(*) FILTER(WHERE status='failed') FROM dns_optimize_tasks t
+		err := e.App.DB().NewQuery(`SELECT `+optimizationResults+` FROM dns_optimize_tasks t
     JOIN json_each({:zones}) z ON t.provider=json_extract(z.value,'$.provider') AND t.access=json_extract(z.value,'$.accessId') AND t.zone=json_extract(z.value,'$.zoneId')`).Bind(dbx.Params{"zones": string(allowed)}).WithContext(ctx).Row(&active, &success, &failed)
 		if err != nil {
 			return nil, upstream
@@ -83,9 +83,7 @@ func (s service) domainOverview(e *core.RequestEvent, grant scope, zones []dnsau
 	accounts, _ := json.Marshal(grant.Accounts)
 	params := dbx.Params{"zones": string(ids), "accounts": string(accounts)}
 	var count, issued, failed, expiring, expired int
-	err := e.App.DB().NewQuery(`SELECT count(*),count(*) FILTER(WHERE o.state IN ('issued','revoking')),count(*) FILTER(WHERE o.state IN ('failed','cancelled','cancelling')),
- count(*) FILTER(WHERE julianday(cert.validityNotAfter) BETWEEN julianday('now') AND julianday('now','+7 days')),
- count(*) FILTER(WHERE o.state='expired' OR julianday(cert.validityNotAfter)<julianday('now'))`+certOrdersFrom).Bind(params).WithContext(ctx).Row(&count, &issued, &failed, &expiring, &expired)
+	err := e.App.DB().NewQuery(`SELECT count(*),`+orderResults+certOrdersFrom).Bind(params).WithContext(ctx).Row(&count, &issued, &failed, &expiring, &expired)
 	if err != nil {
 		return nil, upstream
 	}
@@ -96,7 +94,7 @@ func (s service) domainOverview(e *core.RequestEvent, grant scope, zones []dnsau
 	out["certorder_status_7"] = expired
 	if slices.Contains(grant.Actions, "cert.deploy.read") {
 		var total, pending, complete, failed int
-		err := e.App.DB().NewQuery(`WITH orders AS (SELECT o.id `+certOrdersFrom+`) SELECT count(*),count(*) FILTER(WHERE d.status=0),count(*) FILTER(WHERE d.status=1),count(*) FILTER(WHERE d.status=-1)
+		err := e.App.DB().NewQuery(`WITH orders AS (SELECT o.id `+certOrdersFrom+`) SELECT count(*),`+deployResults+`
  FROM dns_cert_deploy d JOIN orders o ON o.id=d.order_id JOIN access target ON target.id=d.access_id AND target.deleted=''
  WHERE target.id IN (SELECT value FROM json_each({:accounts}))`).Bind(params).WithContext(ctx).Row(&total, &pending, &complete, &failed)
 		if err != nil {

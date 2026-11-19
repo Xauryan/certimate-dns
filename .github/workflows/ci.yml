@@ -75,3 +75,29 @@ jobs:
             status=$(curl --silent --output /dev/null --write-out '%{http_code}' -X "$method" "$endpoint")
             [[ "$status" == 401 || "$status" == 403 ]]
           done
+
+
+  container:
+    name: Build and start the documented source image
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Build using the Compose recipe
+        run: docker compose -f docker/docker-compose.yml build certimate
+      - name: Check the image entrypoint with disposable data
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/image-pb-data"
+          export CERTIMATE_ADMIN_PASSWORD="$(openssl rand -hex 24)"
+          docker run --detach --name certimate-image-check \
+            --publish 127.0.0.1:18091:8090 \
+            --mount "type=bind,source=$RUNNER_TEMP/image-pb-data,target=/app/pb_data" \
+            --env CERTIMATE_ADMIN_USERNAME=ci@example.test --env CERTIMATE_ADMIN_PASSWORD certimate-dns:local
+          trap 'docker stop certimate-image-check >/dev/null' EXIT
+          curl --silent --show-error --fail --retry 25 --retry-connrefused --retry-delay 1 http://127.0.0.1:18091/api/health | jq -e '.code == 200'
+          curl --silent --show-error --fail http://127.0.0.1:18091/ | grep -iq '<!doctype html'
+          test -s "$RUNNER_TEMP/image-pb-data/data.db"

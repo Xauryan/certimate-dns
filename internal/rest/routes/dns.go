@@ -79,6 +79,7 @@ func BindDNSConsole(app core.App, r *router.Router[*core.RequestEvent]) (func(),
 	dnsidentity.Bind(api)
 	dnsidentity.BindWebhook(api)
 	certs := dnscert.Bind(admin, d.repo, d.resolve)
+	dnsmcp.BindCertificateDeployments(admin, certmgmt.DeployPublishedCertificate)
 	dnsbatch.Bind(authenticated, d.resolve)
 	dnsadvanced.Bind(authenticated, d.resolve)
 	if err := dnscatalog.ScheduleReminders(app); err != nil {
@@ -110,7 +111,7 @@ func BindDNSConsole(app core.App, r *router.Router[*core.RequestEvent]) (func(),
 	dnsmcp.Bind(r.RouterGroup, d.resolve, dnsmcp.Services{Cert: certs, Deploy: certmgmt.DeployPublishedCertificate, Automation: auto, Optimize: optimizer})
 	ctx, cancel := context.WithCancel(context.Background())
 	var workers sync.WaitGroup
-	workers.Add(2)
+	workers.Add(3)
 	go func() { defer workers.Done(); auto.Run(ctx) }()
 	go func() {
 		defer workers.Done()
@@ -123,6 +124,21 @@ func BindDNSConsole(app core.App, r *router.Router[*core.RequestEvent]) (func(),
 			case <-tick.C:
 				if err := certs.RunRenewals(ctx, app); err != nil && ctx.Err() == nil {
 					app.Logger().Error("DNS certificate renewal check failed")
+				}
+			}
+		}
+	}()
+	go func() {
+		defer workers.Done()
+		tick := time.NewTicker(time.Minute)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				if err := dnsmcp.RunCertificateDeployments(ctx, app, certmgmt.DeployPublishedCertificate); err != nil && ctx.Err() == nil {
+					app.Logger().Error("DNS certificate deployment check failed")
 				}
 			}
 		}

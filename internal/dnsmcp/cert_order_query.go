@@ -167,10 +167,17 @@ func certBool(value any) (bool, bool) {
 // The commercial issuer accepts exactly one DNS identity. Revalidate the stored
 // key, leaf and SANs before disclosing material or passing it to any deployer.
 func certReadMaterial(e *core.RequestEvent, grant scope, row certOrder) (*core.Record, *opError) {
-	if !certOrderAllowed(e, grant, row, false) || row.State != "issued" || row.CertificateID == "" {
+	if !certOrderAllowed(e, grant, row, false) {
 		return nil, missing
 	}
-	record, err := e.App.FindRecordById(domain.CollectionNameCertificate, row.CertificateID)
+	return issuedCertMaterial(e.App, row)
+}
+
+func issuedCertMaterial(app core.App, row certOrder) (*core.Record, *opError) {
+	if row.State != "issued" || row.CertificateID == "" {
+		return nil, missing
+	}
+	record, err := app.FindRecordById(domain.CollectionNameCertificate, row.CertificateID)
 	if err != nil || record.GetString("deleted") != "" || record.GetBool("isRevoked") {
 		return nil, missing
 	}

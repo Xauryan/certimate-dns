@@ -40,6 +40,7 @@ type service struct {
 
 func Bind(root *router.RouterGroup[*core.RequestEvent], resolve resolver, dependencies Services) {
 	s := service{deploy: dependencies.Deploy, cert: dependencies.Cert, resolve: resolve, automation: dependencies.Automation, optimize: dependencies.Optimize}
+	root.GET("/api/dns-overview", s.adminOverview).Bind(apis.RequireSuperuserAuth())
 	keys := root.Group("/api/dns-keys")
 	keys.Bind(apis.RequireAuth(core.CollectionNameSuperusers, dnsauth.Members), apis.BodyLimit(bodyLimit))
 	keys.GET("", listKeys)

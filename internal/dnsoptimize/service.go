@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pocketbase/dbx"
@@ -30,6 +31,7 @@ type Service struct {
 	lifecycle  sync.Mutex
 	cancel     context.CancelFunc
 	done       chan struct{}
+	heartbeat  atomic.Int64
 }
 
 func New(app core.App, resolve Resolver) *Service {
@@ -133,12 +135,16 @@ func (s *Service) apply(ctx context.Context, t Target, spec Spec, digest, task, 
 	return plan, err
 }
 
+// LastTick is the time of the latest successful scheduler scan, even when no tasks were due.
+func (s *Service) LastTick() int64 { return s.heartbeat.Load() }
+
 func (s *Service) Start() {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
 	if s.cancel != nil {
 		return
 	}
+	s.heartbeat.Store(0)
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	s.done = make(chan struct{})
@@ -178,6 +184,7 @@ func (s *Service) runDue(ctx context.Context) {
 		}
 		return
 	}
+	s.heartbeat.Store(now)
 	for _, row := range rows {
 		if s.lock(ctx) != nil {
 			return

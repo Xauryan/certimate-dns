@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,6 +14,7 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 
+	"github.com/certimate-go/certimate/internal/certmgmt/deployers"
 	"github.com/certimate-go/certimate/internal/domain"
 )
 
@@ -31,20 +32,22 @@ var (
 )
 
 type deployTask struct {
-	Provider string `db:"provider"`
-	ID       string `db:"id"`
-	AID      string `db:"access_id"`
-	OID      string `db:"order_id"`
-	Workflow string `db:"workflow_id"`
-	Node     string `db:"node_id"`
-	Remark   string `db:"remark"`
-	Active   bool   `db:"active"`
-	Status   int    `db:"status"`
-	Version  int    `db:"version"`
-	Process  string `db:"process_id"`
-	Started  int64  `db:"started"`
-	Finished int64  `db:"finished"`
-	Created  int64  `db:"created"`
+	Provider    string `db:"provider"`
+	ID          string `db:"id"`
+	AID         string `db:"access_id"`
+	OID         string `db:"order_id"`
+	Workflow    string `db:"workflow_id"`
+	Node        string `db:"node_id"`
+	Remark      string `db:"remark"`
+	Active      bool   `db:"active"`
+	Status      int    `db:"status"`
+	Version     int    `db:"version"`
+	Process     string `db:"process_id"`
+	Started     int64  `db:"started"`
+	Finished    int64  `db:"finished"`
+	Created     int64  `db:"created"`
+	Automatic   bool   `db:"automatic"`
+	RenewalRoot string `db:"renewal_root"`
 }
 
 func deployTaskRow(app core.App, field string, id string) (deployTask, *opError) {
@@ -71,41 +74,58 @@ func deployDestination(app core.App, t deployTask) (domain.WorkflowNodeConfigFor
 	if w.UnmarshalJSONField("graphContent", &g) != nil {
 		return zero, nil, invalid
 	}
-	var node *domain.WorkflowNode
-	for _, n := range g.Nodes {
-		if n == nil {
-			return zero, nil, invalid
-		}
-		if n.Id == t.Node {
-			if node != nil {
-				return zero, nil, invalid
-			}
-			node = n
-		}
-	}
-	if node == nil || node.Type != domain.WorkflowNodeTypeBizDeploy || node.Data.Disabled {
-		return zero, nil, missing
-	}
-	cfg := node.Data.Config.AsBizDeploy()
-	if t.AID == "" || cfg.ProviderAccessId != t.AID {
-		return zero, nil, missing
+	cfg, problem := resolveDeployNode(g, t)
+	if problem != nil {
+		return zero, nil, problem
 	}
 	a, err := app.FindRecordById(domain.CollectionNameAccess, t.AID)
 	if err != nil || !a.GetDateTime("deleted").IsZero() {
 		return zero, nil, missing
 	}
 	p := a.GetString("provider")
-	supported := false
-	for _, spec := range deploymentAccountSpecs {
-		if spec.matchesNative(p) {
-			supported = true
-			break
-		}
-	}
-	if !supported || (cfg.Provider != p && !strings.HasPrefix(cfg.Provider, p+"-")) {
+	if !deployProviderSupported(p, cfg.Provider) {
 		return zero, nil, unsupported
 	}
 	return cfg, a, nil
+}
+
+func resolveDeployNode(g domain.WorkflowGraph, t deployTask) (domain.WorkflowNodeConfigForBizDeploy, *opError) {
+	var zero domain.WorkflowNodeConfigForBizDeploy
+	var node *domain.WorkflowNode
+	for _, n := range g.Nodes {
+		if n == nil {
+			return zero, invalid
+		}
+		if n.Id == t.Node {
+			if node != nil {
+				return zero, invalid
+			}
+			node = n
+		}
+	}
+	if node == nil || node.Type != domain.WorkflowNodeTypeBizDeploy || node.Data.Disabled {
+		return zero, missing
+	}
+	cfg := node.Data.Config.AsBizDeploy()
+	if t.AID == "" || cfg.ProviderAccessId != t.AID {
+		return zero, missing
+	}
+	return cfg, nil
+}
+
+func deployProviderSupported(accountProvider, nodeProvider string) bool {
+	if nodeProvider != accountProvider && !strings.HasPrefix(nodeProvider, accountProvider+"-") {
+		return false
+	}
+	if _, err := deployers.Registries.Get(domain.DeploymentProviderType(nodeProvider)); err != nil {
+		return false
+	}
+	for _, spec := range deploymentAccountSpecs {
+		if spec.matchesNative(accountProvider) {
+			return true
+		}
+	}
+	return false
 }
 
 func deployInputs(args object, t *deployTask) *opError {
@@ -159,6 +179,29 @@ func deployAccess(e *core.RequestEvent, g scope, t deployTask, write bool) (cert
 	return o, nil
 }
 
+type deployAccessCheck func(core.App, deployTask, bool) (certOrder, *opError)
+
+func scopedDeployAccess(e *core.RequestEvent, g scope) deployAccessCheck {
+	return func(app core.App, t deployTask, write bool) (certOrder, *opError) {
+		ev := &core.RequestEvent{App: app, Auth: e.Auth}
+		ev.Request = e.Request
+		return deployAccess(ev, g, t, write)
+	}
+}
+
+func deployResultMessage(t deployTask) string {
+	switch {
+	case t.Started == 0:
+		return ""
+	case t.Finished == 0:
+		return "Deployment started"
+	case t.Status == 1:
+		return "Deployment started\nDeployment completed"
+	default:
+		return "Deployment started\nProvider did not confirm completion; reconcile target before resetting"
+	}
+}
+
 func (s service) certDeploy(e *core.RequestEvent, tool, action string, args object, g scope) (object, *opError) {
 	if !e.HasSuperuserAuth() || !g.Global {
 		return nil, denied
@@ -177,26 +220,30 @@ func (s service) certDeploy(e *core.RequestEvent, tool, action string, args obje
 		if _, prob = deployAccess(e, g, t, false); prob != nil {
 			return nil, prob
 		}
-		msg := "Deployment started"
-		if t.Finished != 0 {
-			if t.Status == 1 {
-				msg += "\nDeployment completed"
-			} else {
-				msg += "\nProvider did not confirm completion; reconcile target before resetting"
-			}
-		}
-		return object{"code": 0, "data": msg, "time": max(t.Started, t.Finished)}, nil
+		return object{"code": 0, "data": deployResultMessage(t), "time": max(t.Started, t.Finished)}, nil
 	}
 	if tool != "cert_deploy_manage" {
 		return nil, invalid
 	}
 	if action == "process" {
-		return s.deployProcess(e, args, g)
+		return s.deployProcess(e.Request.Context(), e.App, args, scopedDeployAccess(e, g), func(app core.App) bool { return activeGrantIn(e, app) }, slices.Contains(g.Actions, "cert.deploy.reset"), "interface")
 	}
 	if action == "batch" {
 		return deployBatch(e, args, g)
 	}
-	return deployChange(e, action, args, g)
+	var result object
+	var problem *opError
+	err := e.App.RunInTransaction(func(tx core.App) error {
+		result, problem = deployChange(tx, action, args, scopedDeployAccess(e, g), nil)
+		if problem != nil {
+			return errors.New("deployment change declined")
+		}
+		return nil
+	})
+	if problem == nil && err != nil {
+		problem = deployDBError
+	}
+	return result, problem
 }
 
 func deployList(e *core.RequestEvent, args object, g scope) (object, *opError) {
@@ -294,36 +341,64 @@ func deployCAS(app core.App, t deployTask, values dbx.Params, remove bool) *opEr
 
 // Failed transfers and expired claims need an explicit reset. The operator can
 // inspect the destination before allowing another delivery after an ambiguous result.
-func deployChange(e *core.RequestEvent, action string, args object, g scope) (object, *opError) {
+func deployChange(app core.App, action string, args object, check deployAccessCheck, policy *deploymentPolicy) (object, *opError) {
 	var t deployTask
 	var prob *opError
 	if action != "add" {
-		t, prob = deployTaskRow(e.App, "id", str(args, "id"))
+		t, prob = deployTaskRow(app, "id", str(args, "id"))
 		if prob != nil {
 			return nil, prob
 		}
-		if _, prob = deployAccess(e, g, t, true); prob != nil {
-			return nil, prob
+		if policy == nil {
+			if _, prob = check(app, t, true); prob != nil {
+				return nil, prob
+			}
 		}
 		if !deployVersionMatches(args, t) || (t.Started > 0 && t.Finished == 0 && (action != "reset" || time.Now().Unix()-t.Started < 3600)) {
 			return nil, deployConflict
 		}
 	}
+	previous := t
 	values := dbx.Params{}
 	switch action {
 	case "add", "edit":
 		if prob = deployInputs(args, &t); prob != nil {
 			return nil, prob
 		}
-		if _, prob = deployAccess(e, g, t, true); prob != nil {
+		if _, prob = check(app, t, true); prob != nil {
 			return nil, prob
 		}
-		if _, _, prob = deployDestination(e.App, t); prob != nil {
+		if _, _, prob = deployDestination(app, t); prob != nil {
 			return nil, prob
 		}
-		values = dbx.Params{"access_id": t.AID, "order_id": t.OID, "workflow_id": t.Workflow, "node_id": t.Node, "remark": t.Remark, "status": 0, "process_id": "", "started": 0, "finished": 0}
+		if policy != nil && action == "edit" && previous.OID != t.OID && !policy.rebind {
+			return nil, invalid
+		}
+		if policy != nil && action == "edit" &&
+			(previous.OID != t.OID || previous.AID != t.AID || previous.Workflow != t.Workflow || previous.Node != t.Node) &&
+			previous.Started > 0 && previous.Status != 1 {
+			return nil, deployConflict
+		}
+		values = dbx.Params{"access_id": t.AID, "order_id": t.OID, "workflow_id": t.Workflow, "node_id": t.Node, "remark": t.Remark}
+		if policy == nil || previous.OID != t.OID || previous.AID != t.AID || previous.Workflow != t.Workflow || previous.Node != t.Node {
+			clearDeploymentState(values)
+		}
+		if policy != nil {
+			if problem := policy.apply(app, t, values); problem != nil {
+				return nil, problem
+			}
+		}
 	case "reset":
-		values = dbx.Params{"status": 0, "process_id": "", "started": 0, "finished": 0}
+		clearDeploymentState(values)
+		if t.Process != "" && t.Finished == 0 {
+			if _, err := app.DB().Update("dns_cert_deploy_attempts", dbx.Params{"outcome": "needs_reconciliation", "finished": time.Now().Unix()},
+				dbx.HashExp{"id": t.Process, "outcome": "claimed"}).Execute(); err != nil {
+				return nil, deployDBError
+			}
+		}
+		if policy != nil {
+			disableDeploymentAutomation(values)
+		}
 	case "set_active":
 		active, ok := deployBool(args, "active", false)
 		if _, exists := args["active"]; !ok || !exists {
@@ -334,14 +409,21 @@ func deployChange(e *core.RequestEvent, action string, args object, g scope) (ob
 	default:
 		return nil, invalid
 	}
+	// Interface keys cannot arm a scheduled side effect through a task mutation.
+	if policy == nil && action != "del" {
+		disableDeploymentAutomation(values)
+	}
 	if action == "add" {
 		t.ID = core.GenerateDefaultRandomId()
 		values["id"] = t.ID
 		values["created"] = time.Now().Unix()
-		if _, err := e.App.DB().Insert("dns_cert_deploy", values).Execute(); err != nil {
+		if policy != nil {
+			values["active"] = false
+		}
+		if _, err := app.DB().Insert("dns_cert_deploy", values).Execute(); err != nil {
 			return nil, deployDBError
 		}
-	} else if prob = deployCAS(e.App, t, values, action == "del"); prob != nil {
+	} else if prob = deployCAS(app, t, values, action == "del"); prob != nil {
 		return nil, prob
 	}
 	return object{"code": 0, "id": t.ID, "version": t.Version + 1}, nil
@@ -385,7 +467,7 @@ func deployBatch(e *core.RequestEvent, args object, g scope) (object, *opError) 
 			case "cert":
 				in["oid"] = str(args, "certid")
 			}
-			if _, prob = deployChange(event, mapped, in, g); prob != nil {
+			if _, prob = deployChange(tx, mapped, in, scopedDeployAccess(event, g), nil); prob != nil {
 				return errors.New("deployment batch aborted")
 			}
 		}
@@ -409,62 +491,108 @@ type deployAttempt struct {
 	certificate *core.Record
 }
 
-func claimDeploy(e *core.RequestEvent, args object, g scope, processID string) (deployAttempt, *opError) {
+func claimDeploy(app core.App, args object, check deployAccessCheck, mayReset bool, processID, trigger string) (deployAttempt, *opError) {
 	var out deployAttempt
-	t, prob := deployTaskRow(e.App, "id", str(args, "id"))
-	if prob != nil {
-		return out, prob
+	t, problem := deployTaskRow(app, "id", str(args, "id"))
+	if problem != nil {
+		return out, problem
 	}
-	o, prob := deployAccess(e, g, t, true)
-	if prob != nil {
-		return out, prob
+	o, problem := check(app, t, true)
+	if problem != nil {
+		return out, problem
 	}
 	reset, ok := deployBool(args, "reset", false)
 	if !ok {
 		return out, invalid
 	}
-	if reset && !slices.Contains(g.Actions, "cert.deploy.reset") {
+	if reset && !mayReset {
 		return out, denied
 	}
-	if !t.Active || !deployVersionMatches(args, t) || t.Started > 0 && (t.Finished == 0 || !reset) {
+	if !t.Active || !deployVersionMatches(args, t) ||
+		t.Started > 0 && (t.Finished == 0 || !reset || trigger == "admin" && t.Status != 1) {
 		return out, deployConflict
 	}
-	cfg, access, prob := deployDestination(e.App, t)
-	if prob != nil {
-		return out, prob
+	cfg, access, certificate, problem := deploymentMaterial(app, t, o)
+	if problem != nil {
+		return out, problem
 	}
-	cert, prob := certReadMaterial(e, g, o)
-	if prob != nil {
-		return out, prob
+	if _, problem = check(app, t, false); problem != nil {
+		return out, problem
+	}
+	now := time.Now().Unix()
+	if problem = deployCAS(app, t, dbx.Params{"process_id": processID, "started": now, "finished": 0, "status": 0}, false); problem != nil {
+		return out, problem
+	}
+	_, err := app.DB().Insert("dns_cert_deploy_attempts", dbx.Params{
+		"id": processID, "task_id": t.ID, "order_id": o.ID, "certificate_id": certificate.Id,
+		"domain": o.Domain, "access_id": t.AID, "workflow_id": t.Workflow, "node_id": t.Node,
+		"provider": cfg.Provider, "trigger": trigger, "started": now, "outcome": "claimed",
+	}).Execute()
+	if err != nil {
+		return out, deployDBError
+	}
+	t.Version++
+	t.Started, t.Process = now, processID
+	return deployAttempt{task: t, cfg: cfg, access: access, certificate: certificate}, nil
+}
+
+func deploymentMaterial(app core.App, task deployTask, order certOrder) (domain.WorkflowNodeConfigForBizDeploy, map[string]any, *core.Record, *opError) {
+	cfg, access, problem := deployDestination(app, task)
+	if problem != nil {
+		return cfg, nil, nil, problem
+	}
+	cert, problem := issuedCertMaterial(app, order)
+	if problem != nil {
+		return cfg, nil, nil, problem
 	}
 	now := time.Now()
 	if !cert.GetDateTime("validityNotAfter").Time().After(now) || cert.GetDateTime("validityNotBefore").Time().After(now) {
-		return out, deployConflict
+		return cfg, nil, nil, deployConflict
 	}
-	if err := access.UnmarshalJSONField("config", &out.access); err != nil {
-		return out, invalid
+	var secretConfig map[string]any
+	if err := access.UnmarshalJSONField("config", &secretConfig); err != nil {
+		return cfg, nil, nil, invalid
 	}
-	if prob = deployCAS(e.App, t, dbx.Params{"process_id": processID, "started": now.Unix(), "finished": 0, "status": 0}, false); prob != nil {
-		return out, prob
-	}
-	t.Version++
-	out.task = t
-	out.cfg = cfg
-	out.certificate = cert
-	return out, nil
+	return cfg, secretConfig, cert, nil
 }
 
-func (s service) deployProcess(e *core.RequestEvent, args object, g scope) (object, *opError) {
+func finishDeploy(app core.App, task deployTask, status int, outcome string) *opError {
+	var problem *opError
+	err := app.RunInTransaction(func(tx core.App) error {
+		now := time.Now().Unix()
+		if problem = deployCAS(tx, task, dbx.Params{"status": status, "finished": now}, false); problem != nil {
+			return errors.New("deployment claim changed")
+		}
+		result, err := tx.DB().Update("dns_cert_deploy_attempts", dbx.Params{"outcome": outcome, "finished": now},
+			dbx.HashExp{"id": task.Process, "outcome": "claimed"}).Execute()
+		if err != nil {
+			return err
+		}
+		n, err := result.RowsAffected()
+		if err == nil && n != 1 {
+			return errors.New("deployment history changed")
+		}
+		return err
+	})
+	if problem == nil && err != nil {
+		problem = deployDBError
+	}
+	return problem
+}
+
+func (s service) deployProcess(parent context.Context, app core.App, args object, check deployAccessCheck, live func(core.App) bool, mayReset bool, trigger string) (object, *opError) {
 	if s.deploy == nil {
 		return nil, unsupported
 	}
 	processID := core.GenerateDefaultRandomId()
 	var a deployAttempt
 	var problem *opError
-	err := e.App.RunInTransaction(func(tx core.App) error {
-		ev := &core.RequestEvent{App: tx, Auth: e.Auth}
-		ev.Request = e.Request
-		a, problem = claimDeploy(ev, args, g, processID)
+	err := app.RunInTransaction(func(tx core.App) error {
+		if !live(tx) {
+			problem = denied
+			return errors.New("deployment authorization expired")
+		}
+		a, problem = claimDeploy(tx, args, check, mayReset, processID, trigger)
 		if problem != nil {
 			return errors.New("deployment claim declined")
 		}
@@ -476,22 +604,32 @@ func (s service) deployProcess(e *core.RequestEvent, args object, g scope) (obje
 	if err != nil {
 		return nil, deployDBError
 	}
-	ctx, cancel := context.WithTimeout(e.Request.Context(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 90*time.Second)
 	defer cancel()
-	// Issuance, account disablement or key revocation can race the claim.
-	// Check the live credential/zone immediately before transferring material.
-	if _, prob := deployAccess(e, g, a.task, true); prob != nil || !activeGrant(e) {
-		if problem = deployCAS(e.App, a.task, dbx.Params{"status": -1, "finished": time.Now().Unix()}, false); problem != nil {
-			return nil, problem
+	// Revalidate the exact published target, active account and certificate before
+	// sending either part of the key pair. An edit racing the durable claim aborts.
+	o, problem := check(app, a.task, true)
+	if problem == nil {
+		cfg, access, cert, currentProblem := deploymentMaterial(app, a.task, o)
+		if !live(app) || ctx.Err() != nil || currentProblem != nil || !reflect.DeepEqual(cfg, a.cfg) ||
+			!reflect.DeepEqual(access, a.access) || cert.Id != a.certificate.Id ||
+			cert.GetString("certificate") != a.certificate.GetString("certificate") ||
+			cert.GetString("privateKey") != a.certificate.GetString("privateKey") {
+			problem = deployConflict
 		}
-		return nil, denied
+	}
+	if problem != nil {
+		if saveProblem := finishDeploy(app, a.task, -1, "blocked"); saveProblem != nil {
+			return nil, saveProblem
+		}
+		return nil, problem
 	}
 	err = s.deploy(ctx, a.cfg, a.access, a.certificate.GetString("certificate"), a.certificate.GetString("privateKey"))
-	status := 1
+	status, outcome := 1, "completed"
 	if err != nil {
-		status = -1
+		status, outcome = -1, "needs_reconciliation"
 	}
-	if problem = deployCAS(e.App, a.task, dbx.Params{"status": status, "finished": time.Now().Unix()}, false); problem != nil {
+	if problem = finishDeploy(app, a.task, status, outcome); problem != nil {
 		return nil, problem
 	}
 	if err != nil {

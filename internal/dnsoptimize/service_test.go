@@ -161,6 +161,13 @@ func TestRealStorageAndScheduler(t *testing.T) {
 	})
 	s.fetch = func(context.Context, Feed) (candidates, error) { return candidates{"CT": {"1.1.1.1", "8.8.8.8"}}, nil }
 	ctx := t.Context()
+	if s.LastTick() != 0 {
+		t.Fatal("optimizer has a heartbeat before its first scan")
+	}
+	s.runDue(ctx)
+	if s.LastTick() <= 0 || p.writes != 0 {
+		t.Fatal("an empty scheduler scan should update the heartbeat without DNS writes")
+	}
 	in := spec()
 	in.Name = "bad.other.test"
 	if _, err := s.SaveTask(ctx, target, in, 10, ""); err == nil {

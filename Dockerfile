@@ -3,7 +3,7 @@ WORKDIR /app
 COPY . /app/
 RUN \
   cd /app/ui && \
-  npm ci && \
+  npm ci --replace-registry-host=registry.npmmirror.com && \
   npm run build
 
 
@@ -11,6 +11,7 @@ RUN \
 FROM golang:1.25-alpine AS server-builder
 WORKDIR /app
 COPY . /app/
+RUN rm -rf /app/ui/dist
 COPY --from=webui-builder /app/ui/dist /app/ui/dist
 ENV CGO_ENABLED=0
 RUN go build -mod=readonly -trimpath -ldflags="-s -w" -o certimate

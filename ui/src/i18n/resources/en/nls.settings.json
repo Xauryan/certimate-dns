@@ -78,12 +78,13 @@
   "appearance": {
     "tab": "Appearance",
     "theme": {
-      "title": "Theme",
-      "form": {
-        "value": {
-          "extra": "Reload the page for the change to take effect."
-        }
-      }
+      "title": "Browser theme"
+    },
+    "site_theme": {
+      "title": "Default site theme",
+      "tips": "Applies to first visits and browsers set to use the site default.",
+      "load_error": "Could not load the default site theme.",
+      "save_error": "Could not save the default site theme."
     },
     "language": {
       "title": "Language",

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Button, Card, Form, Input, Space, Typography } from "antd";
-import { ClientResponseError, type AuthMethodsList, type RecordAuthResponse } from "pocketbase";
+import { type AuthMethodsList, ClientResponseError, type RecordAuthResponse } from "pocketbase";
+import AppTheme from "@/components/AppTheme";
 import { getPocketBase } from "@/repository/_pocketbase";
 import { unwrapErrMsg } from "@/utils/error";
 
@@ -76,7 +77,12 @@ export default function DNSMemberLogin() {
   };
   return (
     <main className="mx-auto w-full max-w-md p-4 md:p-8">
-      <Typography.Title level={3}>{t("dnsauth.portal")}</Typography.Title>
+      <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <Typography.Title level={3} style={{ margin: 0 }}>
+          {t("dnsauth.portal")}
+        </Typography.Title>
+        <AppTheme.LinkButton />
+      </header>
       <Card>
         {error && <Alert type="error" title={error} showIcon />}
         {mfa && <Alert type="info" title={t("dnsidentity.mfaPrompt")} showIcon />}

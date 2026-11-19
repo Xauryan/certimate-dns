@@ -1,5 +1,5 @@
 ﻿import "reflect-metadata";
-import { useEffect, useState } from "react";
+import { useLayoutEffect } from "react";
 import { RouterProvider } from "react-router-dom";
 import {
   IconCheck,
@@ -16,7 +16,7 @@ import {
 } from "@tabler/icons-react";
 import { App, ConfigProvider, Empty, type ThemeConfig, theme } from "antd";
 
-import { useBrowserTheme } from "@/hooks";
+import { BrowserAppearanceContext, useBrowserAppearance } from "@/hooks/useBrowserTheme";
 import { useAntdLocale, useDayjsLocale, useZodLocale } from "@/i18n";
 import { router } from "@/routers";
 
@@ -26,16 +26,14 @@ const antdThemesMap: Record<string, ThemeConfig> = {
 };
 
 const RootApp = () => {
-  const { theme: browserTheme } = useBrowserTheme();
-
-  const [antdTheme, setAntdTheme] = useState(antdThemesMap[browserTheme]);
+  const appearance = useBrowserAppearance();
+  const { theme: browserTheme } = appearance;
+  const antdTheme = antdThemesMap[browserTheme];
   const antdLocale = useAntdLocale();
   useDayjsLocale();
   useZodLocale();
 
-  useEffect(() => {
-    setAntdTheme(antdThemesMap[browserTheme]);
-
+  useLayoutEffect(() => {
     const root = window.document.documentElement;
     root.classList.remove("light", "dark");
     root.classList.add(browserTheme);
@@ -135,7 +133,9 @@ const RootApp = () => {
       }}
     >
       <App>
-        <RouterProvider router={router} />
+        <BrowserAppearanceContext.Provider value={appearance}>
+          <RouterProvider router={router} />
+        </BrowserAppearanceContext.Provider>
       </App>
     </ConfigProvider>
   );

@@ -9,7 +9,7 @@
 ```sh
 git clone --recurse-submodules https://github.com/Xauryan/certimate-dns.git
 cd certimate-dns
-npm --prefix ui ci
+npm --prefix ui ci --replace-registry-host=registry.npmmirror.com
 npm --prefix ui run build
 mkdir -p dist
 CGO_ENABLED=0 go build -mod=readonly -trimpath -o dist/certimate .
@@ -17,6 +17,8 @@ CGO_ENABLED=0 go build -mod=readonly -trimpath -o dist/certimate .
 ```
 
 浏览器打开 http://127.0.0.1:8090/ 。健康检查在 /api/health。CI 在 GitHub 托管的标准 ubuntu-26.04 x64 机器上构建相同的前端和 Go 可执行文件。进程测试打开临时空库，并从 v0.4.38 的数据库升级后检查会话、工作流、跨域权限、批量变更及重启恢复。CI 的权限为读取仓库内容，测试使用本地数据。
+
+前端锁文件中的 tarball URL 采用 `registry.npmmirror.com`。上述命令和源码 Dockerfile 使用 npm 当前配置的 registry 下载这些包，并按锁文件校验完整性。
 
 ## 安装、升级与回退
 
@@ -27,6 +29,8 @@ CGO_ENABLED=0 go build -mod=readonly -trimpath -o dist/certimate .
 **回退。** 停止升级后的实例，用升级前的完整备份恢复数据目录，再启动相应的旧程序或镜像。迁移彩虹 DNS 的 MySQL 数据时，按[迁移指南](dnsmgr-migration.zh-CN.md)另行导入。
 
 管理台只检查 Certimate DNS 仓库发布的稳定版，提示指向对应的发行包页面。准备发布时，将 `internal/app/app.go` 中的 `AppVersion` 与 `vX.Y.Z` 发行标签对应，保证构建内嵌版本与发行版一致。站点后台任务随主进程运行，设置中的「诊断」提供日志及 Certimate 工作流调度统计。
+
+在「设置 → 外观」中，管理员可设置站点默认主题。选择「使用站点默认主题」的浏览器和首次访问的浏览器使用该主题。管理员和成员可以在各自的登录页面或管理界面切换浏览器主题。旧版本已保存在浏览器中的主题选择继续有效。
 
 ## 使用 Cloudflare DNS 管理
 

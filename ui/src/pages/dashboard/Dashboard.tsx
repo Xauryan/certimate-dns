@@ -32,6 +32,7 @@ import { useBrowserTheme, useVersionChecker } from "@/hooks";
 import { get as getWorkflowRun, list as listWorkflowRuns } from "@/repository/workflowRun";
 import { mergeCls } from "@/utils/css";
 import { unwrapErrMsg } from "@/utils/error";
+import DNSOverview from "./DNSOverview";
 
 const Dashboard = () => {
   const { t } = useTranslation();
@@ -45,6 +46,10 @@ const Dashboard = () => {
       <div className="container">
         <div className="my-1.5">
           <StatisticCards />
+        </div>
+
+        <div className="mt-8">
+          <DNSOverview />
         </div>
 
         <div className="mt-8">
