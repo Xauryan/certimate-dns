@@ -5,6 +5,7 @@ import { panelAccessFields } from "@/domain/hostingPanelFields";
 import { ACCESS_PROVIDERS, type AccessProviderType } from "@/domain/provider";
 
 import { useFormNestedFieldsContext } from "./_context";
+import { AliyunMailFields, SendCloudFields, WxPusherFields } from "./AccessConfigFieldsAPINotification";
 import { BaotaDNSFields, DNSMgrFields, HENetFields } from "./AccessConfigFieldsDNSAccounts";
 import AccessConfigFieldsProvider1Panel from "./AccessConfigFieldsProvider1Panel";
 import AccessConfigFieldsProvider35cn from "./AccessConfigFieldsProvider35cn";
@@ -53,7 +54,6 @@ import AccessConfigFieldsProviderDuckDNS from "./AccessConfigFieldsProviderDuckD
 import AccessConfigFieldsProviderDynadot from "./AccessConfigFieldsProviderDynadot";
 import AccessConfigFieldsProviderDynu from "./AccessConfigFieldsProviderDynu";
 import AccessConfigFieldsProviderDynv6 from "./AccessConfigFieldsProviderDynv6";
-import { AliyunMailFields, SendCloudFields, WxPusherFields } from "./AccessConfigFieldsAPINotification";
 import AccessConfigFieldsProviderEmail from "./AccessConfigFieldsProviderEmail";
 import AccessConfigFieldsProviderFlexCDN from "./AccessConfigFieldsProviderFlexCDN";
 import AccessConfigFieldsProviderFlyIO from "./AccessConfigFieldsProviderFlyIO";

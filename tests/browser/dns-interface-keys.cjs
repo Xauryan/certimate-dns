@@ -56,11 +56,10 @@ async function main() {
     await form.getByRole("checkbox", { name: "1.example.test", exact: true }).check();
     const actions = form.getByRole("combobox", { name: "Allowed actions" });
     await actions.fill("record.update");
-    await actions.press("Enter");
+    await page.locator(".ant-select-item-option:visible").getByText("record.update", { exact: true }).click();
     await actions.press("Escape");
     const readOnly = form.getByRole("checkbox", { name: "1.example.test", exact: true });
-    assert.ok(await readOnly.isDisabled());
-    assert.ok(!(await readOnly.isChecked()));
+    await readOnly.and(form.locator("input:disabled:not(:checked)")).waitFor({ state: "attached" });
     await form.locator(".ant-pagination-item-2").click();
     await form.getByRole("checkbox", { name: "11.example.test", exact: true }).check();
     await form.getByRole("button", { name: "Issue key" }).click();
