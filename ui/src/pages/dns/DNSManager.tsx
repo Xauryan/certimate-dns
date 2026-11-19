@@ -39,7 +39,6 @@ function Records({ base, zone, back }: { base: string; zone: Zone; back: () => v
   const [busy, setBusy] = useState(false);
   const writing = useRef(false);
   const [exporting, setExporting] = useState(false);
-  const [form] = Form.useForm<Fields>();
   const records = base + "/zones/" + encodeURIComponent(zone.id) + "/records";
   const response = useDNSPage<DNSRecord>(records + "?" + new URLSearchParams({ page: String(page), name: filter }), revision);
   const refresh = () => setRevision((value) => value + 1);
@@ -168,12 +167,18 @@ function Records({ base, zone, back }: { base: string; zone: Zone; back: () => v
           onCancel={() => {
             if (!busy) setEditor(null);
           }}
-          onOk={() => form.submit()}
+          okButtonProps={{ form: "dns-record-editor", htmlType: "submit" }}
           confirmLoading={busy}
           closable={!busy}
           maskClosable={!busy}
         >
-          <Form form={form} layout="vertical" preserve={false} initialValues={editor === "new" ? { type: "A", ttl: 1 } : editor} onFinish={save}>
+          <Form<Fields>
+            id="dns-record-editor"
+            layout="vertical"
+            preserve={false}
+            initialValues={editor === "new" ? { type: "A", ttl: 1 } : editor}
+            onFinish={save}
+          >
             <Form.Item name="type" label={t("dns.type")} rules={[{ required: true }]}>
               <Select disabled={editor !== "new"} options={types.map((value) => ({ value }))} />
             </Form.Item>

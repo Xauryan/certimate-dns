@@ -1,0 +1,6 @@
+{
+  "name": "certimate-dns-browser-tests",
+  "private": true,
+  "scripts": { "test": "node dns-records.cjs" },
+  "devDependencies": { "playwright-core": "1.63.0" }
+}
