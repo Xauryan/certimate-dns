@@ -1,3 +1,5 @@
+**Certimate DNS** is a development fork based on Certimate v0.4.38. The initial DNS milestone covers Alibaba Cloud, Tencent Cloud DNSPod and Cloudflare. [Development setup and roadmap](docs/dns-development.zh-CN.md).
+
 <h1 align="center">🔒 Certimate</h1>
 
 <div align="center">

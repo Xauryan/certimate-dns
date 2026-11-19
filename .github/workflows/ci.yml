@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test Certimate
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build embedded web UI
+        run: |
+          npm --prefix ui ci
+          npm --prefix ui run build
+          test -s ui/dist/index.html
+      - name: Build Linux binary
+        run: go build -mod=readonly -trimpath -ldflags="-s -w" -o "$RUNNER_TEMP/certimate" .
+      - name: Run offline Go tests
+        run: go test -mod=readonly ./internal/... ./pkg/utils/... ./pkg/core/deployer/providers/k8s-secret
+      - name: Check first start with an empty database
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/certimate" serve --dir "$RUNNER_TEMP/ci-pb-data" --http 127.0.0.1:18090 > "$RUNNER_TEMP/ci-serve.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          curl --silent --show-error --fail --retry 20 --retry-connrefused --retry-delay 1 http://127.0.0.1:18090/api/health | jq -e '.code == 200'
+          curl --silent --show-error --fail http://127.0.0.1:18090/ | cmp - ui/dist/index.html

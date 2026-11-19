@@ -1,3 +1,5 @@
+**Certimate DNS** 基于 Certimate v0.4.38 二次开发。当前为开发基线，首期计划接入阿里云、腾讯云 DNSPod 和 Cloudflare 的解析管理。[本地运行、源码映射与验收路线图](docs/dns-development.zh-CN.md)。
+
 <h1 align="center">🔒 Certimate</h1>
 
 <div align="center">
