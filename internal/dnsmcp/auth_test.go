@@ -35,6 +35,7 @@ const configSentinel = "synthetic-provider-only-test-value"
 const listToolsRequest = `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
 
 type authFixture struct {
+	remoteAddr      string
 	app             *core.BaseApp
 	mux             http.Handler
 	admin, member   *core.Record
@@ -119,6 +120,9 @@ func setupInterface(t *testing.T) *authFixture {
 
 func (f *authFixture) request(method, path, authorization, contentType, body string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	if f.remoteAddr != "" {
+		r.RemoteAddr = f.remoteAddr
+	}
 	if authorization != "" {
 		r.Header.Set("Authorization", authorization)
 	}
@@ -339,11 +343,26 @@ func TestInterfaceKeySchemasAndActorIsolation(t *testing.T) {
 		f.mux.ServeHTTP(w, r)
 		expectDenied(t, w)
 	}
+}
+
+func TestInterfaceKeySuperuserIPPolicy(t *testing.T) {
+	f := setupInterface(t)
+	// Set the policy before serving requests. PocketBase logs completed HTTP
+	// requests asynchronously and reads other settings while it does so.
 	f.app.Settings().SuperuserIPs = []string{"127.0.0.1"}
 	if err := f.app.Save(f.app.Settings()); err != nil {
 		t.Fatal(err)
 	}
-	expectDenied(t, f.request("POST", "/mcp", full.bearer(), "application/json", listToolsRequest))
+	f.remoteAddr = "127.0.0.1:12345"
+	scope := f.keyInput([]string{"domain.read"}, []string{"mcp"})
+	adminKey := f.issue(t, session(t, f.admin), scope)
+	scoped := f.issue(t, session(t, f.member), scope)
+	if got, _ := f.tools(t, adminKey); !slices.Equal(got, []string{"domain_query"}) {
+		t.Fatal("administrator credential unavailable on the permitted source")
+	}
+
+	f.remoteAddr = ""
+	expectDenied(t, f.request("POST", "/mcp", adminKey.bearer(), "application/json", listToolsRequest))
 	// The default httptest request comes from a non-loopback IP. A member
 	// credential on the same route remains subject to member grants.
 	if got, _ := f.tools(t, scoped); !slices.Equal(got, []string{"domain_query"}) {
