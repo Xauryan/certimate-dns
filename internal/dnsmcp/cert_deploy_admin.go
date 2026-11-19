@@ -64,6 +64,7 @@ type adminDeploymentInput struct {
 	Automatic     bool   `json:"automatic"`
 	FollowRenewal bool   `json:"followRenewal"`
 	Rebind        bool   `json:"rebind"`
+	Reconciled    bool   `json:"reconciled"`
 }
 
 func decodeAdminDeployment(e *core.RequestEvent, in any) bool {
@@ -74,14 +75,6 @@ func decodeAdminDeployment(e *core.RequestEvent, in any) bool {
 
 func nativeDeploymentOrder(app core.App, task deployTask, _ bool) (certOrder, *opError) {
 	return certOrderRow(app, task.OID)
-}
-
-func nativeDeploymentCheck(action string) deployAccessCheck {
-	// Recovery actions remain available after the linked order is removed.
-	if action == "add" || action == "edit" {
-		return nativeDeploymentOrder
-	}
-	return func(core.App, deployTask, bool) (certOrder, *opError) { return certOrder{}, nil }
 }
 
 func adminDeployTransaction(e *core.RequestEvent, fn func(core.App) *opError) *opError {
@@ -132,8 +125,8 @@ func (s service) adminDeploymentChange(action string) func(*core.RequestEvent) e
 		var result object
 		problem := adminDeployTransaction(e, func(tx core.App) *opError {
 			var problem *opError
-			result, problem = deployChange(tx, action, args, nativeDeploymentCheck(action),
-				&deploymentPolicy{automatic: in.Automatic, followRenewals: in.FollowRenewal, rebind: in.Rebind})
+			result, problem = deployChange(tx, action, args, nativeDeploymentOrder,
+				&deploymentPolicy{automatic: in.Automatic, followRenewals: in.FollowRenewal, rebind: in.Rebind, reconciled: in.Reconciled})
 			return problem
 		})
 		return adminDeployReply(e, result, problem)
@@ -149,10 +142,11 @@ func adminDeploymentBatch(e *core.RequestEvent) error {
 		return adminDeployReply(e, nil, denied)
 	}
 	var in struct {
-		Action    string `json:"action"`
-		Confirmed bool   `json:"confirmed"`
-		OrderID   string `json:"orderId"`
-		Tasks     []struct {
+		Action     string `json:"action"`
+		Confirmed  bool   `json:"confirmed"`
+		OrderID    string `json:"orderId"`
+		Reconciled bool   `json:"reconciled"`
+		Tasks      []struct {
 			ID      string `json:"id"`
 			Version int    `json:"version"`
 		} `json:"tasks"`
@@ -180,7 +174,7 @@ func adminDeploymentBatch(e *core.RequestEvent) error {
 			case "edit":
 				args["oid"] = in.OrderID
 			}
-			if _, problem := deployChange(tx, action, args, nativeDeploymentCheck(action), &deploymentPolicy{rebind: true}); problem != nil {
+			if _, problem := deployChange(tx, action, args, nativeDeploymentOrder, &deploymentPolicy{rebind: true, reconciled: in.Reconciled}); problem != nil {
 				return problem
 			}
 		}

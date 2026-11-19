@@ -26,11 +26,12 @@
 | Dmonitor、Schedule · 容灾与定时变更 | [任务及心跳 API](../internal/dnsautomation/api.go)、[任务执行测试](../internal/dnsautomation/engine_test.go) | 任务保存目标与运行状态，执行前重查账号和 Zone。用例覆盖连续失败及恢复阈值、冷却、租约过期、撤销授权、读回与避免重复写。探测目标须列入管理员配置的 `CERTIMATE_DNS_PROBE_IPS` 并对应在管记录。可用协议为 Ping、HTTP、HTTPS 以及端口 80/443 的 TCP。外部公共探测节点、线路故障、长时间调度及消息送达待环境验收。 |
 | Optimizeip · 数据源与优选 | [候选、配额、预览与执行](../internal/dnsoptimize/)、[优选测试](../internal/dnsoptimize/service_test.go) | 选择 CDN、地址族和线路后按预览确认变更，可保存任务和查看历史。用例覆盖候选数据、变更作用域、回读及调度持久化。各源的实时配额、可用地址族和线路效果取决于供应商。 |
 | Cert · 签发、续期、验证、下载 | [商业证书订单](../internal/dnscert/)、[DNS-01 执行器](../internal/workflow/engine/executor_bizapply.go)、[证书工作流](../internal/certacme/) | 上游可选商业签发商为阿里云、腾讯云、UCloud；火山引擎在固定上游只有驱动源码。订单、域名验证、材料入库、续期和吊销有独立路径。商业订单只接收与订单完全一致的单一 DNS 身份，按签发商选择密钥算法。控制台可逐项确认批量删除草稿、重新申请以及启用或停用自动续期。旧图和 `providerAccessId` 按原样读取。HTTP 模拟回执、合成证书与数据库事务测试分别覆盖不同阶段；实际申购、签发、清理和吊销需按签发商验收。 |
-| Cert · 部署账户、任务与处理 | [工作流部署工厂](../internal/certmgmt/deployers/)、[目标驱动](../pkg/core/deployer/providers/)、[MCP 部署任务](../internal/dnsmcp/cert_deploy.go) | 原生工作流可关联证书、调用部署器并保留运行记录。新增 AMH 面板账号登录和环境／站点选择、腾讯云 TKE、七牛证书库上传、网宿 CDN Pro 的指定证书版本发布。下文逐项列出上游 51 个驱动的代码、子产品或限制。真实面板版本、云产品资源绑定和热重载要按子产品核对。 |
-| Auth、User · 用户、域名授权、登录与审计 | [成员、工作区、Zone 授权与单域链接](../internal/dnsauth/)、[登录策略和身份验证](../internal/dnsidentity/) | 跨工作区与单域授权按可见域计数、分页和校验读写。进程用例验证权限撤销对已登录成员生效，且跨账号同名域、已停账号无法产生模拟提供方调用。TOTP、密码、单域链接及会话失效有独立用例，外部身份提供方登录仍待验。 |
+| Cert · 部署账户、任务与处理 | [部署页面](../ui/src/pages/dnscert/CertificateDeployments.tsx)、[部署调度](../internal/dnsmcp/cert_deploy_schedule.go)、[工作流部署工厂](../internal/certmgmt/deployers/)、[MCP 部署任务](../internal/dnsmcp/cert_deploy.go) | 管理员可从「DNS 解析管理 → 证书部署任务」、证书订单或首页进入，选择订单、目标账号和已发布工作流中的部署节点，查看状态、调整绑定、暂停、重置或确认执行。新建任务默认暂停，启用后可手动执行。自动部署另行显式开启，可选择跟随已启用的续期系列。每次启动保留当时的订单、目标和结果等元数据。AMH、腾讯云 TKE、七牛证书库及网宿 CDN Pro 等实现见下方 51 项驱动对照。真实面板版本、云产品资源绑定和热重载要按子产品核对。 |
+| Auth、User · 用户、域名授权、登录与审计 | [成员、工作区、Zone 授权与单域链接](../internal/dnsauth/)、[管理员登录与安全设置](../ui/src/pages/settings/SettingsAdminSecurity.tsx)、[服务端策略](../internal/dnsidentity/admin_login.go) | 跨工作区与单域授权按可见域计数、分页和校验读写。进程用例验证权限撤销对已登录成员生效，且跨账号同名域、已停账号无法产生模拟提供方调用。管理员在「设置 → 账号 → 管理员登录安全」启用图形验证码或登记验证器。图形验证码初始关闭，密码失败按来源累计，已登记的验证器在发放管理员会话前校验一次性动态口令。成员 TOTP、密码、单域链接及会话失效有独立用例。外部身份提供方登录仍待验。 |
 | Mcp 与签名 API | [协议入口](../internal/dnsmcp/routes.go)、[工具声明](../internal/dnsmcp/schema.json)、[密钥与角色测试](../internal/dnsmcp/auth_test.go) | 嵌入声明有 28 个工具、124 个动作，协议发现与实际动作执行分别核对。实际工具列表按调用角色、授权动作与 Zone 构建。10 条签名 HTTP 入口中，三类普通读取接受原版签名。六个写入口、证书私钥导出以及域名详情中申请一次性登录链接均须 v2 签名。签名更新和 MCP 记录管理复用原生替换校验，回读确认后返回实际记录 ID。委托密钥管理账号时，只允许探测固定服务商端点。自建 DNS 端点由本地管理员配置。[签名与权限](dnsmgr-interfaces.zh-CN.md) |
 | Qqbot、System · 通知与设置 | [QQ/OIDC/登录策略](../internal/dnsidentity/)、[通知渠道与测试](../internal/notify/notifiers/)、[设置](../ui/src/pages/settings/) | SendCloud、阿里云 DirectMail、WxPusher 与原有 Certimate 渠道使用同一套授权管理。QQ 签名回调、绑定、目的地隔离和模拟回执有用例。邮件与各聊天平台的实际收件人、告警及恢复通知需逐事件验收。 |
-| Index、Install、System · 首页、安装、更新及维护 | [应用入口](../main.go)、[设置与诊断](../ui/src/pages/settings/)、[数据库迁移](../migrations/) | 首次运行以 PocketBase 初始化，升级时重用原数据库，后台调度跟随主程序。管理员可保存实例 DNS 代理并测试固定目标的连通性。安装、升级和定期任务走原生进程，维护入口见下文运维差异。完整嵌入 UI 的 Linux 候选程序已通过空库启动、旧库升级、权限与记录操作以及重启的四阶段离线验收。[代理设置](../internal/dnsproxysettings/) · [进程验收](../tests/integration/acceptance.py) |
+| Index · 管理员首页与外观 | [DNS 运行概览](../ui/src/pages/dashboard/DNSOverview.tsx)、[聚合接口](../internal/dnsmcp/overview.go)、[外观设置](../ui/src/pages/settings/SettingsAppearance.tsx) | 管理员首页展示域名、定时变更、容灾与主备状态、保存的优选任务及最近任务结果、商业证书订单及到期、部署状态，并链接对应业务入口。概览在查询前校验管理员会话，使用本地状态和调度心跳。「设置 → 外观 → 站点默认主题」可选浅色、暗黑或自动（跟随系统）。登录页和采用站点默认主题的浏览器读取此设置，浏览器可保留独立选择。 |
+| Install、System · 安装、更新及维护 | [应用入口](../main.go)、[设置与诊断](../ui/src/pages/settings/)、[数据库迁移](../migrations/) | 首次运行以 PocketBase 初始化，升级时重用原数据库，后台调度跟随主程序。管理员可保存实例 DNS 代理并测试固定目标的连通性。安装、升级和定期任务走原生进程，维护入口见下文运维差异。完整嵌入 UI 的 Linux 候选程序已通过空库启动、旧库升级、权限与记录操作以及重启的四阶段离线验收。[代理设置](../internal/dnsproxysettings/) · [进程验收](../tests/integration/acceptance.py) |
 | 从 DNSMgr 迁移 | [迁移命令](../cmd/dnsmgr-migrate/)、[清单、预览与导入](../internal/dnsmigrate/) | [迁移手册](dnsmgr-migration.zh-CN.md)逐项列出 17 张来源表以及落库、暂存、仅计数的区别。本地 MariaDB 11.8.6 使用 schema 1049 和合成数据完成只读导出。按源身份去重并绑定本机授权。管理员可显式确认成员映射和直接 Zone 授权，也可在同一事务登记已核对的别名、暂停任务、证书及部署依赖。历史授权的 `sub` 字段非空时保留待复核。导出排除密码、密钥、证书正文和部署配置。真实历史库的来源数量、对象映射和实际业务状态待核验。 |
 
 以下「接入前快照」中的「缺项」仅描述基线提交 `a67b65a`。其后的逐驱动表已更新至当前实现。
@@ -179,6 +180,9 @@ DNSMgr 注册的 8 个签发渠道中有 5 个属于 ACME。Certimate 在签发�
 ## 运维和协议差异
 
 - Certimate 通过 PocketBase 迁移安装和升级，由主进程调度后台任务。PHP 安装向导、PHP 缓存管理、在线替换应用源码及外部 cron 调用属于 DNSMgr 的运行方式。
+- DNSMgr 默认启用图形验证码并以实例锁文件记录登录失败。Certimate DNS 的管理员图形验证码由管理员显式打开，密码失败限制按来源保存。验证器种子使用 `CERTIMATE_DNS_TOTP_KEY` 加密，未设置时使用 PocketBase 配置的加密密钥。服务器操作员可用 `dns-admin-reset totp EMAIL` 移除验证器，或用 `dns-admin-reset password EMAIL` 从标准输入重设密码，两项操作都会撤销会话。`dns-admin-reset unlock` 清除管理员密码失败记录。[恢复命令](../internal/dnsidentity/reset.go)
+- 商业证书部署沿用已发布的 Certimate 部署节点。发布图或目标授权变更后需重新确认自动部署。传输结果不明时需核对目标状态并在界面确认后重置。仍显示执行中的任务在启动一小时后才允许重置。重置后需重新启用自动部署。尝试记录只保存执行时的任务、订单、证书与目标标识及结果，管理员在删除任务后仍可按任务 ID 查询历史。[部署状态与记录](../internal/dnsmcp/cert_deploy.go) · [历史查询](../internal/dnsmcp/cert_deploy_admin.go)
+- 部署通知使用证书订单配置的通知渠道。每次执行结果至多生成一条本地待发送记录，内容包括订单 ID、部署尝试 ID 和结果。发送失败由通知队列重试，部署执行状态由原尝试记录保留。[通知队列](../internal/dnscert/notification.go)
 - Google EAB 经 Public CA API 获取，手填既有 EAB 也可使用。第三方代办和反向代理模式不在此工作流内。面板和远端证书部署使用固定的证书操作、显式目标和相应账号权限。
 - 固定版 DNSMgr 的登录、签名 API 和 MCP 均按 `permission.domain` 授权。导入器把历史数据中的非空 `sub` 留在暂存清单供复核，避免推定这类记录可以展开为整个 Zone。明确匹配的成员和直接 Zone 角色可以应用。[迁移手册](dnsmgr-migration.zh-CN.md)
 - 搜索、记录集元数据粒度、线路、账号套餐、DNS 发布、ACME 签发和通知送达由各提供方及目标环境决定。逐驱动表中的明确限制是当前代码行为。
@@ -187,9 +191,14 @@ DNSMgr 注册的 8 个签发渠道中有 5 个属于 ACME。Certimate 在签发�
 
 | 证据 | 可复核的范围 |
 | --- | --- |
-| Go 模块 | Go 1.26.6 下 `dnsauth`、`dnscatalog`、`dnsbatch`、`dnsautomation`、`dnsoptimize`、`dnsidentity`、`dnsmigrate` 七个包的定向测试通过。接口用例覆盖 v2 签名、nonce、订单导出授权及拒绝委托探测未批准的目标。[接口用例](../internal/dnsmcp/auth_test.go) |
-| 浏览器 | DNS 账号页的 Chromium 用例验证 22 种可选授权；记录变更、跨账号预览、成员权限、接口密钥和证书订单使用合成账号与模拟请求。[账号用例](../tests/browser/dns-accounts.cjs) · [批量用例](../tests/browser/dns-batch.cjs) · [订单用例](../tests/browser/certificate-orders.cjs) |
-| 完整应用进程 | 2026-11-20 使用嵌入 UI 的 Linux 候选程序通过四阶段验收。覆盖空库登录、从 v0.4.38 升级并保留凭据和工作流、集合锁与按域和账号授权的 DNS CRUD、批量确认和撤权，以及重启后状态、授权与停用持久化。测试使用回环 PowerDNS。[进程验收](../tests/integration/acceptance.py) |
+| Go 模块 | 2026-11-20 在 Go 1.26.6 下运行离线套件，69 个含测试的包全部通过。范围包括迁移命令、应用内部包和 SDK 离线用例。[CI 的包选择](../.github/workflows/ci.yml) 接口用例覆盖 v2 签名、nonce、订单导出授权及拒绝委托探测未批准的目标。[接口用例](../internal/dnsmcp/auth_test.go) |
+| 浏览器 | 生产前端构建、21 项 Node 测试及 9 个 Chromium 入口脚本通过。DNS 账号页验证 22 种可选授权，记录变更、跨账号预览、成员权限、接口密钥和证书订单使用合成账号与模拟请求。[账号用例](../tests/browser/dns-accounts.cjs) · [批量用例](../tests/browser/dns-batch.cjs) · [订单用例](../tests/browser/certificate-orders.cjs) |
+| DNS 首页 | Go 1.25.14 的合成数据用例覆盖聚合计数、未授权访问、已失效的优选目标和本地只读路径。Chromium 模拟请求覆盖读取失败重试、业务入口跳转和记录服务异常时打开优选历史。[接口用例](../internal/dnsmcp/overview_test.go) · [浏览器用例](../tests/browser/dns-overview.cjs) |
+| 管理员登录 | Go 1.26.6 的定向测试及竞态测试覆盖 PocketBase 原生登录、验证码与失败限制、已启用的原生邮件 MFA 后继续校验 TOTP、会话撤销和本地恢复。登录与安全设置的 Chromium 用例使用模拟请求。真实邮件送达需单独验收。[认证用例](../internal/dnsidentity/admin_auth_test.go) · [浏览器用例](../tests/browser/admin-security.cjs) |
+| 站点外观 | Go 1.25.14 的离线接口用例覆盖公开读取、匿名和成员写入拒绝、设置校验及重新打开数据库后读取。Chromium 模拟首次访问、管理员保存、成员覆盖和刷新保留，以及系统主题切换。[设置用例](../internal/settings/appearance_test.go) · [浏览器用例](../tests/browser/site-appearance.cjs) |
+| 商业证书部署 | Go 离线用例覆盖管理员权限、并发执行互斥、批量操作的事务、自动部署默认关闭、目标变更撤销批准、跟随续期、结果不明时停止和历史保留。通知队列以合成发送器验证执行结果去重。Chromium 模拟请求覆盖分页与筛选、部署目标选择、手工和批量确认、版本冲突、重置及结果日志。[部署用例](../internal/dnsmcp/cert_deploy_admin_test.go) · [通知用例](../internal/dnscert/notification_test.go) · [浏览器用例](../tests/browser/certificate-deployments.cjs) |
+| 完整应用进程 | 2026-11-20 使用包含原生部署页面、通知队列和管理员登录防护的 Linux 程序及内嵌 UI 通过四阶段验收。覆盖空库登录、DNS 概览及部署列表的管理员权限、管理员保存并公开读取站点主题、从 v0.4.38 升级并保留凭据和工作流、按域和账号授权的 DNS 记录操作，以及重启后授权与停用持久化。测试使用回环 PowerDNS。[进程验收](../tests/integration/acceptance.py) |
+| 构建产物 | 本地验证 Linux 可执行文件，交叉编译 Windows amd64 IIS 助手。标准 GitHub 托管 Ubuntu 26.04 runner 另按 Compose 配方构建镜像，并用临时数据检查镜像入口、首页及健康接口。[PR 检查记录](https://github.com/Xauryan/certimate-dns/pull/1/checks) |
 | 真实服务商 | 22 家 DNS 提供方的公网变更、8 个可选渠道的实际签发、51 个上游部署驱动所涉及的远端资源，以及通知送达，均需以各自授权账号和实际结果记录。本次离线核对没有使用真实凭据。 |
 
 

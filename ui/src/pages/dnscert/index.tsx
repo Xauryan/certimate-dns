@@ -6,11 +6,11 @@ import { ClientResponseError } from "pocketbase";
 import { unwrapErrMsg } from "@/utils/error";
 import BatchOrderActions from "./BatchOrderActions";
 import DraftForm, { type FormValues } from "./DraftForm";
+import { type Account, type Action, type Order, type Page, actions, providers, request, states, useLabel, useResource } from "./order";
+import OrderActionDialog from "./OrderActionDialog";
 import OrderHistory from "./OrderHistory";
 import OrderNotification from "./OrderNotification";
 import RenewalSettings from "./RenewalSettings";
-import OrderActionDialog from "./OrderActionDialog";
-import { type Account, type Action, type Order, type Page, actions, providers, request, states, useLabel, useResource } from "./order";
 
 export default function CertificateOrders() {
   const label = useLabel();
@@ -167,6 +167,7 @@ export default function CertificateOrders() {
         <Link to="/accesses">{label("Access credentials", "授权账号")}</Link>
         <Link to="/certificates">{label("Certificate inventory", "证书库")}</Link>
         <Link to="/workflows">{label("Deployment workflows", "部署工作流")}</Link>
+        <Link to="/dns-cert/deployments">{label("Certificate deployments", "证书部署任务")}</Link>
       </Space>
       {!accounts.loading && !accounts.error && !matchingAccounts.length && (
         <Alert
@@ -239,6 +240,7 @@ export default function CertificateOrders() {
                       {label(...actions[a])}
                     </Button>
                   ))}
+                <Link to={"/dns-cert/deployments?orderId=" + encodeURIComponent(r.id)}>{label("Deployment tasks", "部署任务")}</Link>
                 {r.certificateId && <Link to={"/certificates?keyword=" + encodeURIComponent(r.certificateId)}>{label("View certificate", "查看证书")}</Link>}
               </Space>
             ),

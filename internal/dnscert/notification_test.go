@@ -81,3 +81,70 @@ func TestOrderNotificationOutbox(t *testing.T) {
 		}
 	}
 }
+
+func TestDeploymentNotificationOutboxDeduplicatesAttempts(t *testing.T) {
+	app := newChallengeFixture(t).app
+	col, err := app.FindCollectionByNameOrId("access")
+	if err != nil {
+		t.Fatal(err)
+	}
+	channel := core.NewRecord(col)
+	channel.Load(map[string]any{"name": "deployment notification", "provider": "sendcloud", "reserve": "notif",
+		"config": map[string]string{"apiKey": "synthetic-private"}})
+	if err := app.Save(channel); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.DB().Insert("dns_cert_notice_settings", dbx.Params{"order_id": "one", "access_id": channel.Id}).Execute(); err != nil {
+		t.Fatal(err)
+	}
+	// Duplicate enqueue calls and a second, inconsistent outcome for the same
+	// ID leave the first persisted outcome unchanged.
+	for _, attempt := range [][3]string{
+		{"one", "success-attempt", "completed"},
+		{"one", "success-attempt", "completed"},
+		{"one", "success-attempt", "blocked"},
+		{"one", "ambiguous-attempt", "needs_reconciliation"},
+		{"two", "no-channel-attempt", "completed"},
+	} {
+		if err := EnqueueDeploymentNotice(app, attempt[0], attempt[1], attempt[2]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var count int
+	if err := app.DB().NewQuery("SELECT count(*) FROM dns_cert_notices").Row(&count); err != nil || count != 2 {
+		t.Fatal("incorrect deployment notice count", count, err)
+	}
+	calls := map[string]int{}
+	send := func(_ context.Context, _ core.App, id, subject, message string) error {
+		if id != channel.Id || strings.Contains(subject+message, "synthetic-private") {
+			t.Fatal("notification exposed credential contents or targeted a different channel")
+		}
+		switch message {
+		case "Order one · Deployment attempt success-attempt · completed":
+			if subject != "[Certimate] Certificate deployment completed" {
+				t.Fatal("unexpected deployment success subject")
+			}
+			calls["success"]++
+			if calls["success"] == 1 {
+				return errors.New("synthetic notifier temporarily unavailable")
+			}
+		case "Order one · Deployment attempt ambiguous-attempt · needs_reconciliation":
+			if subject != "[Certimate] Certificate deployment requires attention" {
+				t.Fatal("unexpected reconciliation subject")
+			}
+			calls["ambiguous"]++
+		default:
+			t.Fatal("deployment notice included unexpected or unsafe metadata")
+		}
+		return nil
+	}
+	now := time.Now()
+	for _, at := range []time.Time{now, now, now.Add(3 * time.Minute), now.Add(4 * time.Minute)} {
+		if err := deliverOrderNotices(t.Context(), app, at, send); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls["success"] != 2 || calls["ambiguous"] != 1 {
+		t.Fatal("notification retry or deduplication count differed")
+	}
+}

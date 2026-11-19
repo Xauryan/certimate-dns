@@ -317,6 +317,13 @@ func TestNativeCertificateDeploymentScheduleAndRenewal(t *testing.T) {
 		}
 	}
 	root, successor := f.order(t), f.order(t)
+	channel := f.save(t, "access", fields{"name": "Synthetic deployment notices", "provider": "sendcloud",
+		"reserve": "notif", "config": fields{"secret": configSentinel}})
+	for _, order := range []string{root, successor} {
+		if _, err := f.app.DB().Insert("dns_cert_notice_settings", dbx.Params{"order_id": order, "access_id": channel.Id}).Execute(); err != nil {
+			t.Fatal(err)
+		}
+	}
 	// Default policy retains disabled automation for pre-existing active tasks.
 	_, err := f.app.DB().Insert("dns_cert_deploy", dbx.Params{"id": "old-task", "access_id": f.target.Id,
 		"order_id": root, "workflow_id": f.workflow.Id, "node_id": "ship", "created": 1}).Execute()
@@ -372,9 +379,20 @@ func TestNativeCertificateDeploymentScheduleAndRenewal(t *testing.T) {
 		t.Fatal("renewal was not followed or ambiguous write was not recorded")
 	}
 	f.call(t, http.MethodPost, "/"+task+"/process", fields{"confirmed": true, "version": st.Version, "runAgain": true}, http.StatusConflict)
-	f.call(t, http.MethodPost, "/"+task+"/reset", fields{"confirmed": true, "version": st.Version}, http.StatusOK)
+	f.call(t, http.MethodPost, "/"+task+"/reset", fields{"confirmed": true, "version": st.Version}, http.StatusConflict)
+	f.call(t, http.MethodPost, "/"+task+"/reset", fields{"confirmed": true, "version": st.Version, "reconciled": true}, http.StatusOK)
 	if f.state(t, task).Automatic {
 		t.Fatal("reset rearmed automatic delivery")
+	}
+	run(2)
+	var outcomesWithNotice int
+	err = f.app.DB().NewQuery("SELECT count(*) FROM dns_cert_notices WHERE action='deployment' AND access_id={:id} AND status='pending'").
+		Bind(dbx.Params{"id": channel.Id}).Row(&outcomesWithNotice)
+	if err != nil || outcomesWithNotice != 2 {
+		t.Fatal("expected one queued notice for each of the completed and ambiguous attempts")
+	}
+	if _, err := f.app.DB().Update("dns_cert_notices", dbx.Params{"status": "retrying"}, dbx.HashExp{"action": "deployment"}).Execute(); err != nil {
+		t.Fatal(err)
 	}
 	run(2)
 	logs := f.logs(t, task)

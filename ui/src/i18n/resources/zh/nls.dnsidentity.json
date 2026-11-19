@@ -35,5 +35,17 @@
   "test": "发送测试消息",
   "save": "保存",
   "saved": "设置已更新。",
-  "sent": "测试消息已发送。"
+  "sent": "测试消息已发送。",
+  "adminSecurity": "管理员登录安全",
+  "adminCaptchaOn": "管理员登录已开启图形验证码。",
+  "adminCaptchaOff": "管理员登录已关闭图形验证码。",
+  "adminCaptchaEnable": "开启图形验证码",
+  "adminCaptchaDisable": "关闭图形验证码",
+  "adminCurrentPassword": "当前密码",
+  "adminAuthenticatorOn": "当前账号已绑定验证器。",
+  "adminAuthenticatorOff": "当前账号未绑定验证器。",
+  "adminAuthenticatorReplace": "更换验证器",
+  "adminScan": "请用验证器应用扫描二维码，并输入应用生成的动态验证码。",
+  "adminNewCode": "新验证器的动态验证码",
+  "adminRecovery": "无法访问验证器时，可请服务器运维人员使用 dns-admin-reset 命令重置。"
 }

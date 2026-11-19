@@ -41,6 +41,7 @@ func main() {
 	pb.RootCmd.AddCommand(cmd.NewVersionCommand(pb))
 	pb.RootCmd.AddCommand(cmd.NewWinscCommand(pb))
 	pb.RootCmd.AddCommand(dnsidentity.NewResetCommand(pb))
+	pb.RootCmd.AddCommand(dnsidentity.NewAdminResetCommand(pb))
 
 	isServeCmd := slices.Contains(os.Args[1:], "serve")
 

@@ -186,6 +186,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
     ["/dns/automation", "dns.automation"],
     ["/dns/cloudflare", "dns.cloudflare"],
     ["/dns-cert", "dns.orders"],
+    ["/dns-cert/deployments", "dns.deployments"],
     ["/dns-permissions", "dnsauth.permissions"],
     ["/dns-identity", "dns.identity"],
     ["/dns-interfaces", "dns.interfaces"],

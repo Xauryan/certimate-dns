@@ -15,6 +15,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 
 	"github.com/certimate-go/certimate/internal/certmgmt/deployers"
+	"github.com/certimate-go/certimate/internal/dnscert"
 	"github.com/certimate-go/certimate/internal/domain"
 )
 
@@ -389,10 +390,12 @@ func deployChange(app core.App, action string, args object, check deployAccessCh
 			}
 		}
 	case "reset":
+		if policy != nil && !policy.reconciled && (t.Status == -1 || t.Started > 0 && t.Finished == 0) {
+			return nil, deployConflict
+		}
 		clearDeploymentState(values)
-		if t.Process != "" && t.Finished == 0 {
-			if _, err := app.DB().Update("dns_cert_deploy_attempts", dbx.Params{"outcome": "needs_reconciliation", "finished": time.Now().Unix()},
-				dbx.HashExp{"id": t.Process, "outcome": "claimed"}).Execute(); err != nil {
+		if t.Process != "" && t.Started > 0 && t.Finished == 0 {
+			if err := closeDeploymentAttempt(app, t, "needs_reconciliation", time.Now().Unix(), false); err != nil {
 				return nil, deployDBError
 			}
 		}
@@ -556,6 +559,26 @@ func deploymentMaterial(app core.App, task deployTask, order certOrder) (domain.
 	return cfg, secretConfig, cert, nil
 }
 
+func closeDeploymentAttempt(tx core.App, task deployTask, outcome string, now int64, mustExist bool) error {
+	result, err := tx.DB().Update("dns_cert_deploy_attempts", dbx.Params{"outcome": outcome, "finished": now},
+		dbx.HashExp{"id": task.Process, "outcome": "claimed"}).Execute()
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 1 {
+		return dnscert.EnqueueDeploymentNotice(tx, task.OID, task.Process, outcome)
+	}
+	if mustExist {
+		return errors.New("deployment history changed")
+	}
+	// Tasks from before the audit migration can have a claim without history.
+	return nil
+}
+
 func finishDeploy(app core.App, task deployTask, status int, outcome string) *opError {
 	var problem *opError
 	err := app.RunInTransaction(func(tx core.App) error {
@@ -563,16 +586,7 @@ func finishDeploy(app core.App, task deployTask, status int, outcome string) *op
 		if problem = deployCAS(tx, task, dbx.Params{"status": status, "finished": now}, false); problem != nil {
 			return errors.New("deployment claim changed")
 		}
-		result, err := tx.DB().Update("dns_cert_deploy_attempts", dbx.Params{"outcome": outcome, "finished": now},
-			dbx.HashExp{"id": task.Process, "outcome": "claimed"}).Execute()
-		if err != nil {
-			return err
-		}
-		n, err := result.RowsAffected()
-		if err == nil && n != 1 {
-			return errors.New("deployment history changed")
-		}
-		return err
+		return closeDeploymentAttempt(tx, task, outcome, now, true)
 	})
 	if problem == nil && err != nil {
 		problem = deployDBError

@@ -38,6 +38,7 @@
   "automation": "DNS 自动化",
   "cloudflare": "Cloudflare 管理",
   "orders": "证书订单",
+  "deployments": "证书部署任务",
   "identity": "身份与登录",
   "interfaces": "DNS 接口密钥",
   "manageAccounts": "DNS 管理账号",

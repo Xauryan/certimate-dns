@@ -35,5 +35,17 @@
   "test": "Send test message",
   "save": "Save",
   "saved": "Settings updated.",
-  "sent": "Test message delivered."
+  "sent": "Test message delivered.",
+  "adminSecurity": "Administrator sign-in security",
+  "adminCaptchaOn": "Image verification is enabled for administrator sign-in.",
+  "adminCaptchaOff": "Image verification is disabled for administrator sign-in.",
+  "adminCaptchaEnable": "Enable image verification",
+  "adminCaptchaDisable": "Disable image verification",
+  "adminCurrentPassword": "Current password",
+  "adminAuthenticatorOn": "Your authenticator is enabled.",
+  "adminAuthenticatorOff": "Your authenticator is disabled.",
+  "adminAuthenticatorReplace": "Replace authenticator",
+  "adminScan": "Scan this QR code in your authenticator app and enter the code it generates.",
+  "adminNewCode": "Code from the new authenticator",
+  "adminRecovery": "Lost access to your authenticator? A server operator can reset it with the dns-admin-reset command."
 }

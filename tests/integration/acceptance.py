@@ -297,7 +297,8 @@ def exercise(api, provider, legacy, member_password):
     member = api.login("dns_members", MEMBER_EMAIL, member_password)
     verify_locked(api, member, first)
     check(zone_page(api, member) == {"items": [], "total": 0}, "ungranted member can see zones")
-    for route in (CATALOG + "/accounts", CATALOG + "/domains/" + other["id"]):
+    for route in (CATALOG + "/accounts", CATALOG + "/domains/" + other["id"],
+                  "/api/dns-overview", "/api/dnscert/deployments"):
         api.api("GET", route, member, expected=(403,))
     api.api("GET", MEMBERS, expected=(401, 403))
 
@@ -374,6 +375,12 @@ def main():
                       f"{method} /mcp did not reach the interface authentication handler")
             proxy = api.pb("GET", "/api/dns-proxy/settings", api.admin)
             check(proxy.get("enabled") is False, "fresh DNS proxy must be disabled")
+            overview = api.api("GET", "/api/dns-overview", api.admin)
+            check(overview["domains"] == 0, "new catalog reported preexisting domains")
+            deployments = api.pb("GET", "/api/dnscert/deployments", api.admin)
+            check(deployments["total"] == 0 and deployments["items"] == [], "new deployment list is not empty")
+            api.pb("PUT", "/api/appearance", api.admin, {"theme": "light"})
+            check(api.pb("GET", "/api/appearance") == {"theme": "light"}, "public site theme did not update")
         print("PASS fresh schema and administrator login", flush=True)
         db = directory / "upgrade"
         with serve(baseline, db, admin_password) as api:

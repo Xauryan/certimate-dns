@@ -98,6 +98,10 @@ jobs:
             --mount "type=bind,source=$RUNNER_TEMP/image-pb-data,target=/app/pb_data" \
             --env CERTIMATE_ADMIN_USERNAME=ci@example.test --env CERTIMATE_ADMIN_PASSWORD certimate-dns:local
           trap 'docker stop certimate-image-check >/dev/null' EXIT
-          curl --silent --show-error --fail --retry 25 --retry-connrefused --retry-delay 1 http://127.0.0.1:18091/api/health | jq -e '.code == 200'
+          # Docker can accept and reset connections while PocketBase runs migrations.
+          curl --silent --show-error --fail --retry 25 --retry-all-errors --retry-delay 1 \
+            --max-time 4 --retry-max-time 45 --output "$RUNNER_TEMP/image-health.json" \
+            http://127.0.0.1:18091/api/health
+          jq -e '.code == 200' "$RUNNER_TEMP/image-health.json"
           curl --silent --show-error --fail http://127.0.0.1:18091/ | grep -iq '<!doctype html'
           test -s "$RUNNER_TEMP/image-pb-data/data.db"

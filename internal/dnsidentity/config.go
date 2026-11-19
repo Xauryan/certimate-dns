@@ -52,6 +52,7 @@ func decode(e *core.RequestEvent, target any) error {
 func Bind(group *router.RouterGroup[*core.RequestEvent]) {
 	api := group.Group("/dns-identity").Bind(apis.RequireSuperuserAuth(), apis.BodyLimit(8192))
 	bindTOTP(group)
+	bindAdminAuth(group)
 	group.GET("/dns-identity/captcha", serveCaptcha)
 	api.GET("/oidc", readOIDC)
 	api.PUT("/oidc", saveOIDC)

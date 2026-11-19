@@ -13,6 +13,7 @@ import DNSPermissions from "@/pages/dnsauth/DNSPermissions";
 import DNSAutomation from "@/pages/dnsautomation/DNSAutomation";
 import DomainCatalog from "@/pages/dnscatalog/DomainCatalog";
 import CertificateOrders from "@/pages/dnscert";
+import CertificateDeployments from "@/pages/dnscert/CertificateDeployments";
 import DNSIdentity from "@/pages/dnsidentity/DNSIdentity";
 import DNSInterfaceKeys from "@/pages/dnsinterfaces/DNSInterfaceKeys";
 import ErrorLayout from "@/pages/ErrorLayout";
@@ -47,6 +48,7 @@ export const router = createHashRouter([
       { path: "/dns/automation", element: <DNSAutomation /> },
       { path: "/dns-automation", element: <DNSAutomation /> },
       { path: "/dns-cert", element: <CertificateOrders /> },
+      { path: "/dns-cert/deployments", element: <CertificateDeployments /> },
       { path: "/dns-permissions", element: <DNSPermissions /> },
       { path: "/dns-identity", element: <DNSIdentity /> },
       {

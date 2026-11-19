@@ -44,8 +44,9 @@ func sessionFingerprint(r *core.Record) string {
 	return digest(r.TokenKey() + "\x00" + r.Collection().AuthToken.Secret)
 }
 
-// Install attaches the same member policies to native PocketBase sign-in methods.
+// Install attaches the member and administrator policies to native PocketBase sign-in methods.
 func Install(app core.App) {
+	installAdminAuth(app)
 	guard := newLoginGuard()
 	app.Store().Set(guardKey, guard)
 	app.OnRecordAuthWithPasswordRequest(dnsauth.Members).Bind(&hook.Handler[*core.RecordAuthWithPasswordRequestEvent]{
@@ -127,7 +128,7 @@ func matchedStep(key, ciphertext, code string, now time.Time, last int64) (int64
 	return 0, errFactor
 }
 
-func rotateMember(app core.App, r *core.Record) error {
+func revokeAuthSessions(app core.App, r *core.Record) error {
 	r.RefreshTokenKey()
 	if err := app.Save(r); err != nil {
 		return err
@@ -224,7 +225,7 @@ func bindTOTP(api *router.RouterGroup[*core.RequestEvent]) {
 				if err != nil {
 					return err
 				}
-				return rotateMember(tx, r)
+				return revokeAuthSessions(tx, r)
 			})
 			if err != nil {
 				return e.BadRequestError("Authenticator verification failed.", nil)

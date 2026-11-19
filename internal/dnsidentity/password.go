@@ -21,6 +21,8 @@ import (
 )
 
 const guardKey = "dns.identity.loginGuard"
+const adminGuardKey = "dns.identity.adminLoginGuard"
+const adminAttemptScope = "admin"
 const guardLimit = 4096
 
 type captchaChallenge struct {
@@ -55,37 +57,65 @@ func (g *loginGuard) password(e *core.RecordAuthWithPasswordRequestEvent) error 
 	if err != nil {
 		return err
 	}
-	var input struct {
-		ID     string `json:"captchaId" form:"captchaId"`
-		Answer string `json:"captcha" form:"captcha"`
-	}
+	e.Response.Header().Set("Cache-Control", "no-store")
 	if required {
-		if err := e.BindBody(&input); err != nil {
+		if err := g.verifyCaptcha(e.RequestEvent); err != nil {
 			return err
 		}
 	}
-	key := e.RealIP()
-	now := time.Now()
-	if required {
-		g.mu.Lock()
-		challenge, ok := g.challenges[input.ID]
-		if ok && challenge.ip == key {
-			delete(g.challenges, input.ID)
-		}
-		g.mu.Unlock()
-		if !ok || !challenge.expires.After(now) || challenge.ip != key || subtle.ConstantTimeCompare([]byte(challenge.answer), []byte(input.Answer)) != 1 {
-			return e.BadRequestError("Invalid or expired image code.", nil)
-		}
+	attempt, err := reservePassword(e.RequestEvent, "")
+	if err != nil {
+		return err
 	}
+	err = e.Next()
+	// A validated password may lead to a 401 (native MFA / authenticator).
+	if e.Record != nil && (err == nil || e.Written() && e.Status() == http.StatusUnauthorized) && !e.Record.GetBool("disabled") {
+		attempt.clear(e.App)
+	}
+	return err
+}
+
+func (g *loginGuard) verifyCaptcha(e *core.RequestEvent) error {
+	var input struct {
+		ID     string `json:"captchaId" form:"captchaId" xml:"captchaId"`
+		Answer string `json:"captcha" form:"captcha" xml:"captcha"`
+	}
+	if err := e.BindBody(&input); err != nil {
+		return e.BadRequestError("Invalid image code.", nil)
+	}
+	source := e.RealIP()
+	g.mu.Lock()
+	challenge, ok := g.challenges[input.ID]
+	if ok && challenge.ip == source {
+		delete(g.challenges, input.ID)
+	}
+	g.mu.Unlock()
+	if !ok || !challenge.expires.After(time.Now()) || challenge.ip != source || subtle.ConstantTimeCompare([]byte(challenge.answer), []byte(input.Answer)) != 1 {
+		return e.BadRequestError("Invalid or expired image code.", nil)
+	}
+	return nil
+}
+
+type passwordAttempt struct {
+	source string
+	id     int64
+}
+
+func reservePassword(e *core.RequestEvent, scope string) (passwordAttempt, error) {
+	source := e.RealIP()
+	if scope != "" {
+		source = scope + "\x00" + source
+	}
+	attempt := passwordAttempt{source: digest(source)}
+	now := time.Now()
 	// Reserve the attempt before checking credentials, including when multiple
 	// requests arrive concurrently or the server restarts between attempts.
-	params := dbx.Params{"source": digest(key), "expires": now.Add(2 * time.Hour).Unix()}
-	var attempt int64
-	err = e.App.RunInTransaction(func(tx core.App) error {
+	params := dbx.Params{"source": attempt.source, "scope": scope, "expires": now.Add(2 * time.Hour).Unix()}
+	err := e.App.RunInTransaction(func(tx core.App) error {
 		if _, err := tx.DB().NewQuery("DELETE FROM dns_login_attempts WHERE expires <= {:now}").Bind(dbx.Params{"now": now.Unix()}).Execute(); err != nil {
 			return err
 		}
-		res, err := tx.DB().NewQuery(`INSERT INTO dns_login_attempts(source,expires) SELECT {:source},{:expires}
+		res, err := tx.DB().NewQuery(`INSERT INTO dns_login_attempts(source,expires,scope) SELECT {:source},{:expires},{:scope}
 			WHERE (SELECT COUNT(*) FROM dns_login_attempts WHERE source={:source}) < 5`).Bind(params).Execute()
 		if err != nil {
 			return err
@@ -94,24 +124,23 @@ func (g *loginGuard) password(e *core.RecordAuthWithPasswordRequestEvent) error 
 		if err != nil || n == 0 {
 			return err
 		}
-		attempt, err = res.LastInsertId()
+		attempt.id, err = res.LastInsertId()
 		return err
 	})
 	if err != nil {
-		return e.InternalServerError("Could not verify sign-in attempts.", nil)
+		return passwordAttempt{}, e.InternalServerError("Could not verify sign-in attempts.", nil)
 	}
-	if attempt == 0 {
-		return e.TooManyRequestsError("Too many login attempts. Try again later.", nil)
+	if attempt.id == 0 {
+		return passwordAttempt{}, e.TooManyRequestsError("Too many login attempts. Try again later.", nil)
 	}
-	err = e.Next()
-	// A validated password may lead to a 401 (native MFA / authenticator).
-	if e.Record != nil && (err == nil || e.Written() && e.Status() == http.StatusUnauthorized) && !e.Record.GetBool("disabled") {
-		_, clearErr := e.App.DB().NewQuery("DELETE FROM dns_login_attempts WHERE source = {:source} AND id <= {:attempt}").Bind(dbx.Params{"source": params["source"], "attempt": attempt}).Execute()
-		if clearErr != nil {
-			e.App.Logger().Warn("Could not clear member sign-in attempts")
-		}
+	return attempt, nil
+}
+
+func (a passwordAttempt) clear(app core.App) {
+	_, err := app.DB().NewQuery("DELETE FROM dns_login_attempts WHERE source = {:source} AND id <= {:attempt}").Bind(dbx.Params{"source": a.source, "attempt": a.id}).Execute()
+	if err != nil {
+		app.Logger().Warn("Could not clear sign-in attempts")
 	}
-	return err
 }
 
 func serveCaptcha(e *core.RequestEvent) error {
@@ -119,11 +148,15 @@ func serveCaptcha(e *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
+	return respondCaptcha(e, required, guardKey)
+}
+
+func respondCaptcha(e *core.RequestEvent, required bool, key string) error {
 	e.Response.Header().Set("Cache-Control", "no-store")
 	if !required {
 		return e.JSON(200, map[string]bool{"required": false})
 	}
-	g, ok := e.App.Store().Get(guardKey).(*loginGuard)
+	g, ok := e.App.Store().Get(key).(*loginGuard)
 	if !ok {
 		return e.InternalServerError("Sign-in is unavailable.", nil)
 	}

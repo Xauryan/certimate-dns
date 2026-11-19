@@ -2,8 +2,20 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { withConsole } = require("./serve-console.cjs");
 
+const fixtures = [
+  "dns-records.cjs",
+  "dns-accounts.cjs",
+  "dns-interface-keys.cjs",
+  "certificate-orders.cjs",
+  "certificate-deployments.cjs",
+  "dns-proxy.cjs",
+  "dns-overview.cjs",
+  "site-appearance.cjs",
+  "admin-security.cjs",
+];
+
 withConsole(async (base) => {
-  for (const fixture of ["dns-records.cjs", "dns-accounts.cjs", "dns-interface-keys.cjs", "certificate-orders.cjs", "dns-proxy.cjs"]) {
+  for (const fixture of fixtures) {
     await new Promise((resolve, reject) => {
       const child = spawn(process.execPath, [path.join(__dirname, fixture)], {
         env: { ...process.env, DNS_UI_BASE: base },

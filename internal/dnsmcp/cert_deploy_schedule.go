@@ -16,6 +16,7 @@ type deploymentPolicy struct {
 	automatic      bool
 	followRenewals bool
 	rebind         bool
+	reconciled     bool
 }
 
 func clearDeploymentState(values dbx.Params) {

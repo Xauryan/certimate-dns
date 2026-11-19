@@ -110,6 +110,9 @@ async function testDNSPermissions(browser, address) {
   try {
     await viewer.route("**/api/**", async (route) => {
       const u = new URL(route.request().url());
+      if (route.request().method() === "GET" && u.pathname === "/api/appearance") {
+        return route.fulfill({ json: { theme: "dark" } });
+      }
       requested.push(u.pathname);
       if (u.pathname === "/api/dns-member/zones") {
         return ok(route, {
@@ -139,7 +142,7 @@ async function testDNSPermissions(browser, address) {
     await viewer.getByRole("alert").getByText("This zone grant has been revoked").waitFor();
     assert.equal(await viewer.getByRole("cell", { name: "fixture value" }).count(), 0);
     assert.equal(await viewer.evaluate(() => JSON.parse(localStorage.getItem("pocketbase_auth"))?.record.collectionName), "dns_members");
-    assert.ok(requested.every((p) => p.startsWith("/api/dns-member/") || p.startsWith("/api/dns/")));
+    assert.deepEqual(requested.filter((p) => !p.startsWith("/api/dns-member/") && !p.startsWith("/api/dns/")), []);
     assert.deepEqual(errors, []);
     console.log("PASS mobile navigation, grant and revoke, member route isolation, read-only controls, and denied zone access");
   } finally {

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/certimate-go/certimate/internal/notify"
@@ -41,11 +42,33 @@ func notifyOrderEvent(tx core.App, id, action, state string, success bool) error
 	return err
 }
 
+const deploymentNoticeAction = "deployment"
+const deploymentNoticeKeyPrefix = "deployment:"
+
+// EnqueueDeploymentNotice records one outcome for an attempt in its order's
+// outbox. Call it in the transaction that finalizes the attempt.
+func EnqueueDeploymentNotice(tx core.App, orderID, attemptID, outcome string) error {
+	if attemptID == "" || outcome != "completed" && outcome != "blocked" && outcome != "needs_reconciliation" {
+		return errors.New("invalid deployment notification event")
+	}
+	key := deploymentNoticeKeyPrefix + attemptID
+	_, err := tx.DB().NewQuery(`INSERT INTO dns_cert_notices(order_id,access_id,event_key,action,state,success,created)
+		SELECT s.order_id,s.access_id,{:key},{:action},{:outcome},{:success},{:now}
+		FROM dns_cert_notice_settings s
+		JOIN access a ON a.id=s.access_id AND a.reserve='notif' AND a.deleted=''
+		WHERE s.order_id={:id} AND NOT EXISTS(
+			SELECT 1 FROM dns_cert_notices existing WHERE existing.order_id=s.order_id AND existing.event_key={:key})`).
+		Bind(dbx.Params{"id": orderID, "key": key, "action": deploymentNoticeAction, "outcome": outcome,
+			"success": outcome == "completed", "now": time.Now().Unix()}).Execute()
+	return err
+}
+
 type orderNotice struct {
 	ID       int    `db:"id"`
 	OrderID  string `db:"order_id"`
 	AccessID string `db:"access_id"`
 	Action   string `db:"action"`
+	EventKey string `db:"event_key"`
 	State    string `db:"state"`
 	Success  bool   `db:"success"`
 	Attempts int    `db:"attempts"`
@@ -72,7 +95,7 @@ func deliverOrderNotices(ctx context.Context, app core.App, now time.Time, send 
 		return err
 	}
 	var rows []orderNotice
-	if err := app.DB().NewQuery("SELECT id,order_id,access_id,action,state,success,attempts FROM dns_cert_notices WHERE " + due + " AND " + live + " ORDER BY id LIMIT 20").Bind(params).WithContext(ctx).All(&rows); err != nil {
+	if err := app.DB().NewQuery("SELECT id,order_id,access_id,action,event_key,state,success,attempts FROM dns_cert_notices WHERE " + due + " AND " + live + " ORDER BY id LIMIT 20").Bind(params).WithContext(ctx).All(&rows); err != nil {
 		return err
 	}
 	for _, n := range rows {
@@ -93,8 +116,15 @@ func deliverOrderNotices(ctx context.Context, app core.App, now time.Time, send 
 		if !n.Success || n.State == "failed" || n.State == "needs_review" {
 			outcome = "requires attention"
 		}
+		subject := "[Certimate] Certificate order " + outcome
+		message := fmt.Sprintf("Order %s · %s · %s", n.OrderID, n.Action, n.State)
+		if n.Action == deploymentNoticeAction {
+			subject = "[Certimate] Certificate deployment " + outcome
+			message = fmt.Sprintf("Order %s · Deployment attempt %s · %s", n.OrderID,
+				strings.TrimPrefix(n.EventKey, deploymentNoticeKeyPrefix), n.State)
+		}
 		child, cancel := context.WithTimeout(ctx, 20*time.Second)
-		err = send(child, app, n.AccessID, "[Certimate] Certificate order "+outcome, fmt.Sprintf("Order %s · %s · %s", n.OrderID, n.Action, n.State))
+		err = send(child, app, n.AccessID, subject, message)
 		cancel()
 		status := "accepted"
 		if err != nil {

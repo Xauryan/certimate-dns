@@ -38,6 +38,7 @@
   "automation": "DNS automation",
   "cloudflare": "Cloudflare management",
   "orders": "Certificate orders",
+  "deployments": "Certificate deployments",
   "identity": "Identity and sign-in",
   "interfaces": "DNS interface keys",
   "manageAccounts": "DNS management accounts",
