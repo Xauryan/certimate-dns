@@ -3,6 +3,7 @@ package hostname
 import (
 	"crypto/x509"
 	"net"
+	"regexp"
 	"strings"
 
 	xcert "github.com/certimate-go/certimate/pkg/utils/cert"
@@ -79,4 +80,19 @@ func IsMatchByCertificate(certX509 *x509.Certificate, hostname string) bool {
 	}
 
 	return certX509.VerifyHostname(hostname) == nil
+}
+
+var dnsLabel = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+
+// IsDNSName reports whether name is a concrete DNS hostname in ASCII label form.
+func IsDNSName(name string) bool {
+	if len(name) == 0 || len(name) > 253 {
+		return false
+	}
+	for label := range strings.SplitSeq(name, ".") {
+		if !dnsLabel.MatchString(label) {
+			return false
+		}
+	}
+	return true
 }

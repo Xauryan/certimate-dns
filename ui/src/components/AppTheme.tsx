@@ -1,33 +1,29 @@
 ﻿import { useTranslation } from "react-i18next";
-import { IconMoon, type IconProps, IconSun, IconSunMoon } from "@tabler/icons-react";
-import { Dropdown, type DropdownProps, Typography } from "antd";
+import { IconMoon, type IconProps, IconSun, IconSunMoon, IconWorld } from "@tabler/icons-react";
+import { Button, Dropdown, type DropdownProps } from "antd";
 
 import Show from "@/components/Show";
 import { useBrowserTheme } from "@/hooks";
-import { mergeCls } from "@/utils/css";
+import { type BrowserTheme } from "@/hooks/useBrowserTheme";
 
 export const useAppThemeMenuItems = () => {
   const { t } = useTranslation();
 
-  const { themeMode, setThemeMode } = useBrowserTheme();
+  const { setThemeMode } = useBrowserTheme();
 
   const items = (
     [
+      ["site", "common.theme.site", <IconWorld size="1em" />],
       ["light", "common.theme.light", <IconSun size="1em" />],
       ["dark", "common.theme.dark", <IconMoon size="1em" />],
       ["system", "common.theme.system", <IconSunMoon size="1em" />],
-    ] satisfies Array<[string, string, React.ReactNode]>
+    ] satisfies Array<[BrowserTheme, string, React.ReactNode]>
   ).map(([key, label, icon]) => {
     return {
       key: key,
       label: t(label),
       icon: icon,
-      onClick: () => {
-        if (key !== themeMode) {
-          setThemeMode(key as Parameters<typeof setThemeMode>[0]);
-          window.location.reload();
-        }
-      },
+      onClick: () => setThemeMode(key),
     };
   });
 
@@ -78,13 +74,17 @@ const AppThemeLinkButton = ({ className, style, showIcon = true }: AppThemeLinkB
   const { themeMode } = useBrowserTheme();
 
   return (
-    <AppThemeDropdown trigger={["click", "hover"]}>
-      <Typography.Text className={mergeCls("cursor-pointer", className)} style={style} type="secondary">
-        <div className="flex items-center justify-center space-x-1">
-          {showIcon ? <AppThemeIcon size="1em" /> : <></>}
-          <span>{t(`common.theme.${themeMode}`)}</span>
-        </div>
-      </Typography.Text>
+    <AppThemeDropdown>
+      <Button
+        className={className}
+        style={style}
+        size="small"
+        type="text"
+        aria-label={`${t("settings.appearance.theme.title")}: ${t(`common.theme.${themeMode}`)}`}
+        icon={showIcon ? <AppThemeIcon size="1em" /> : undefined}
+      >
+        {t(`common.theme.${themeMode}`)}
+      </Button>
     </AppThemeDropdown>
   );
 };

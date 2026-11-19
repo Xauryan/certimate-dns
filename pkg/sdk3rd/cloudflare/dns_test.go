@@ -63,9 +63,14 @@ func TestDNSWritesAndExport(t *testing.T) {
 	var calls []string
 	c := localClient(t, func(w http.ResponseWriter, r *http.Request) {
 		calls = append(calls, r.Method+" "+r.URL.Path)
-		if r.Method == "GET" {
+		if strings.HasSuffix(r.URL.Path, "/export") {
 			w.Header().Set("Content-Type", "text/plain")
 			io.WriteString(w, "example.org. 300 IN TXT \"value\"\n")
+			return
+		}
+		if r.Method == "GET" {
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"success":true,"result":{"id":"`+testRecord+`","name":"example.org","type":"TXT"}}`)
 			return
 		}
 		if r.Method == "PATCH" || r.Method == "POST" {
@@ -103,7 +108,7 @@ func TestDNSWritesAndExport(t *testing.T) {
 		t.Fatal(text, err)
 	}
 	path := "/zones/" + testZone + "/dns_records"
-	want := []string{"POST " + path, "PATCH " + path + "/" + id, "DELETE " + path + "/" + id, "GET " + path + "/export"}
+	want := []string{"POST " + path, "GET " + path + "/" + id, "PATCH " + path + "/" + id, "GET " + path + "/" + id, "DELETE " + path + "/" + id, "GET " + path + "/export"}
 	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("unexpected calls: %v", calls)
 	}
@@ -128,5 +133,92 @@ func TestDNSFailureAndInvalidIDs(t *testing.T) {
 	_, err := c.DeleteDNSRecord(context.Background(), testZone, testRecord)
 	if err == nil || strings.Contains(err.Error(), "sensitive") || !strings.Contains(err.Error(), "403") || calls != 1 {
 		t.Fatal(err, calls)
+	}
+}
+
+func TestGlobalCredentialsScopeAndZoneCreation(t *testing.T) {
+	var secondCalls int
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { secondCalls++ }))
+	defer second.Close()
+	const account = "cccccccccccccccccccccccccccccccc"
+	var creates int
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("X-Auth-Key") != "fixture-key" || r.Header.Get("X-Auth-Email") != "dns@example.test" || r.Header.Get("Authorization") != "" {
+			t.Error("unexpected credential mode")
+		}
+		if r.URL.Path == "/accounts" {
+			io.WriteString(w, `{"success":true,"result":[{"id":"`+account+`"}],"result_info":{"page":1,"total_count":1}}`)
+			return
+		}
+		if r.Method == "POST" {
+			var in struct {
+				Name    string
+				Account struct{ ID string }
+			}
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Name != "example.test" || in.Account.ID != account {
+				t.Error("incorrect zone create payload", err)
+			}
+			creates++
+			io.WriteString(w, `{"success":true,"result":{"id":"`+testZone+`","name":"example.test","status":"pending"}}`)
+			return
+		}
+		http.Redirect(w, r, second.URL, http.StatusTemporaryRedirect)
+	}))
+	defer local.Close()
+	c, err := NewClient(WithGlobalAPIKey("dns@example.test", "fixture-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.rc.SetBaseURL(local.URL)
+	z, err := c.CreateZone(context.Background(), "EXAMPLE.test.")
+	if err != nil || z.ID != testZone || creates != 1 {
+		t.Fatal(z, err)
+	}
+	_, err = c.Zones(context.Background(), 1)
+	if err == nil || secondCalls != 0 || strings.Contains(err.Error(), "fixture-key") {
+		t.Fatal("credentials followed redirect", err)
+	}
+}
+
+func TestStructuredDNSWrites(t *testing.T) {
+	type fixture struct {
+		kind, content string
+		fields        map[string]any
+	}
+	examples := []fixture{
+		{"CAA", `0 issue "example.test; parameter=A B"`, map[string]any{"flags": uint8(0), "tag": "issue", "value": "example.test; parameter=A B"}},
+		{"SRV", "10 8 443 service.example.test.", map[string]any{"priority": uint16(10), "weight": uint16(8), "port": uint16(443), "target": "service.example.test."}},
+		{"URI", `5 "https://example.test/path"`, map[string]any{"weight": uint16(5), "target": "https://example.test/path"}},
+	}
+	for _, ex := range examples {
+		b, err := cloudflareContent(ex.kind, ex.content, nil)
+		if err != nil {
+			t.Fatal(ex.kind, err)
+		}
+		got, _ := json.Marshal(b["data"])
+		want, _ := json.Marshal(ex.fields)
+		if string(got) != string(want) {
+			t.Fatal(ex.kind, string(got), string(want))
+		}
+	}
+	if _, err := cloudflareContent("SRV", "10 443 missing", nil); err == nil {
+		t.Fatal("incomplete SRV accepted")
+	}
+	for _, record := range []string{
+		`{"id":"` + testRecord + `","name":"www.example.test","type":"A","meta":{"managed_by_apps":true}}`,
+		`{"id":"` + testRecord + `","name":"www.example.test","type":"MX"}`,
+		`{"id":"` + testRecord + `","name":"www.example.test"}`,
+	} {
+		c := localClient(t, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != "GET" {
+				t.Error("mutation after partial or managed record read")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"success":true,"result":`+record+`}`)
+		})
+		if _, err := c.PatchDNSRecord(context.Background(), testZone, testRecord, RecordPatch{Content: "value", TTL: 300}); err == nil {
+			t.Fatal("mutation succeeded")
+		}
 	}
 }

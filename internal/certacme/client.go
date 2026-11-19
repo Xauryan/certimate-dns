@@ -6,13 +6,16 @@ import (
 	"fmt"
 
 	"github.com/go-acme/lego/v5/lego"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/certimate-go/certimate/internal/app"
 )
 
 type ACMEClient struct {
-	client  *lego.Client
-	account *ACMEAccount
+	// lego mutates this client's solver manager when setting a provider.
+	obtainLock *semaphore.Weighted
+	client     *lego.Client
+	account    *ACMEAccount
 }
 
 // Deprecated: use [NewACMEClientWithAccount] instead.
@@ -62,7 +65,8 @@ func newACMEClientWithAccount(account *ACMEAccount, configures ...func(*lego.Con
 	}
 
 	return &ACMEClient{
-		client:  legoClient,
-		account: account,
+		client:     legoClient,
+		account:    account,
+		obtainLock: semaphore.NewWeighted(1),
 	}, nil
 }

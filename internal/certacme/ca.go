@@ -14,7 +14,7 @@ var caDirUrls = map[string]string{
 	domain.CAProviderTypeActalisSSL.String():          "https://acme-api.actalis.com/acme/directory",
 	domain.CAProviderTypeDigiCert.String():            "https://acme.digicert.com/v2/acme/directory",
 	domain.CAProviderTypeGlobalSignAtlas.String():     "https://emea.acme.atlas.globalsign.com/directory",
-	domain.CAProviderTypeGoogleTrustServices.String(): "https://dv.acme-v02.api.pki.goog/directory",
+	domain.CAProviderTypeGoogleTrustServices.String(): googleLiveDirectory,
 	domain.CAProviderTypeLiteSSL.String():             "https://acme.litessl.com/acme/v2/directory",
 	domain.CAProviderTypeSSLCom.String():              "https://acme.ssl.com/sslcom-dv-rsa",
 	domain.CAProviderTypeSSLCom.String() + "RSA":      "https://acme.ssl.com/sslcom-dv-rsa",
@@ -28,6 +28,15 @@ var caDirUrls = map[string]string{
 
 func getCADirUrl(providerType domain.CAProviderType, providerAccessConfig map[string]any, keyAlgorithm domain.CertificateKeyAlgorithmType) (string, error) {
 	switch providerType {
+	case domain.CAProviderTypeGoogleTrustServices:
+		switch providerAccessConfig["mode"] {
+		case nil, "", "live":
+			return caDirUrls[providerType.String()], nil
+		case "staging":
+			return googleStagingDirectory, nil
+		default:
+			return "", fmt.Errorf("invalid Google Public CA environment")
+		}
 	case domain.CAProviderTypeSectigo:
 		credentials := &domain.AccessConfigForGlobalSectigo{}
 		if err := xmaps.Populate(providerAccessConfig, &credentials); err != nil {

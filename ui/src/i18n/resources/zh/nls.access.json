@@ -66,6 +66,34 @@
   },
 
   "form": {
+    "dns_account": {
+      "dnsmgr_signature": "DNSMgr 签名版本",
+      "dnsmgr_legacy": "传统签名",
+      "proxy": "DNS API 连接方式",
+      "proxy_inherit": "沿用环境代理设置",
+      "proxy_direct": "直接连接",
+      "proxy_required": "必须使用实例 DNS 代理",
+      "authentication": "认证方式",
+      "global_key": "全局 API 密钥",
+      "cloudflare_email": "Cloudflare 账号邮箱",
+      "cloudflare_account": "新建域名使用的账号 ID（可选）",
+      "account_id": "账户 ID",
+      "access_key": "Access Key",
+      "secret_key": "Secret Key",
+      "site_url": "聚合 DNS 管理系统地址",
+      "user_id": "用户 ID",
+      "api_key": "API 密钥",
+      "username": "用户名或邮箱",
+      "password": "密码",
+      "endpoint": "API 接入点",
+      "mainland": "中国内地",
+      "international": "国际站",
+      "goedge_cluster": "DNS 集群 ID",
+      "goedge_cluster_help": "管理 DNS 时必填。",
+      "goedge_user": "GoEdge 用户 ID（选填）",
+      "goedge_insecure": "允许自签名 TLS 证书或内网 HTTP",
+      "goedge_url_help": "填写 GoEdge HTTP API 节点地址，网址不能包含凭据、查询参数或片段。使用 HTTP 时需开启下方选项，并填写 localhost、回环地址或私有 IP 地址。"
+    },
     "name": {
       "label": "名称",
       "placeholder": "请输入授权名称"
@@ -652,6 +680,11 @@
       "label": "发件人邮箱",
       "placeholder": "请输入发件人邮箱"
     },
+    "api_mail_receiver": "收件人邮箱",
+    "sendcloud_user": "API 用户",
+    "sendcloud_key": "API 密钥",
+    "wxpusher_token": "应用令牌",
+    "wxpusher_uid": "接收用户 UID",
     "email_sender_name": {
       "label": "发件人名称（可选）",
       "placeholder": "请输入发件人名称"
@@ -778,6 +811,16 @@
       "tooltip": "这是什么？请参阅 <a href=\"https://docs.cloud.google.com/iam/docs/keys-create-delete?hl=zh-cn\" target=\"_blank\">https://docs.cloud.google.com/iam/docs/keys-create-delete</a>"
     },
     "googletrustservices_eab": {
+      "environment": "ACME 环境",
+      "environment_live": "生产环境",
+      "environment_staging": "测试环境",
+      "mode": "EAB 凭据",
+      "mode_manual": "手动填写 EAB 密钥",
+      "mode_auto": "在 Google Cloud 项目中创建 EAB 密钥",
+      "project_id_invalid": "请输入有效的 Google Cloud 项目 ID。",
+      "service_account_key": "Google 服务账号密钥 JSON",
+      "service_account_key_invalid": "请输入 Google 服务账号密钥 JSON。",
+      "service_account_key_help": "请启用 Public CA API，并为此服务账号授予目标项目的 Public CA 外部账号密钥创建者角色。",
       "guide": "点击下方链接了解如何获取 Google Trust Services EAB：<br><a href=\"https://cloud.google.com/certificate-manager/docs/public-ca-tutorial\" target=\"_blank\">https://cloud.google.com/certificate-manager/docs/public-ca-tutorial</a>"
     },
     "hetzner_api_token": {

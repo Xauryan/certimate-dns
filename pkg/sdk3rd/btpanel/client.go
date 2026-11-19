@@ -34,7 +34,7 @@ func NewClient(serverUrl string, optFns ...OptionsFunc) (*Client, error) {
 		return nil, fmt.Errorf("sdkerr: unset serverUrl")
 	}
 	if _, err := url.Parse(serverUrl); err != nil {
-		return nil, fmt.Errorf("sdkerr: invalid serverUrl: %w", err)
+		return nil, fmt.Errorf("sdkerr: invalid serverUrl")
 	}
 	if opts.ApiKey == "" {
 		return nil, fmt.Errorf("sdkerr: unset apiKey")
@@ -42,6 +42,7 @@ func NewClient(serverUrl string, optFns ...OptionsFunc) (*Client, error) {
 
 	httper := resty.New().
 		SetBaseURL(strings.TrimSuffix(serverUrl, "/")).
+		SetRedirectPolicy(resty.NoRedirectPolicy()).
 		SetHeader("Accept", "application/json").
 		SetHeader("Content-Type", "application/x-www-form-urlencoded").
 		SetHeader("User-Agent", app.AppUserAgent)
@@ -120,9 +121,12 @@ func (c *Client) doRequest(req *resty.Request) (*resty.Response, error) {
 
 	resp, err := req.Send()
 	if err != nil {
-		return resp, fmt.Errorf("sdkerr: failed to send request: %w", err)
-	} else if resp.IsError() {
-		return resp, fmt.Errorf("sdkerr: unexpected status code: %d (resp: %s)", resp.StatusCode(), resp.String())
+		if ctxErr := req.Context().Err(); ctxErr != nil {
+			return resp, ctxErr
+		}
+		return resp, fmt.Errorf("sdkerr: panel connection failed")
+	} else if !resp.IsSuccess() {
+		return resp, fmt.Errorf("sdkerr: unexpected status code: %d", resp.StatusCode())
 	}
 
 	return resp, nil
@@ -143,14 +147,10 @@ func (c *Client) doRequestWithResult(req *resty.Request, res sdkResponse) (*rest
 
 	if len(resp.Body()) != 0 {
 		if err := json.Unmarshal(resp.Body(), &res); err != nil {
-			return resp, fmt.Errorf("sdkerr: failed to unmarshal response: %w (resp: %s)", err, resp.String())
+			return resp, fmt.Errorf("sdkerr: invalid panel response")
 		} else {
 			if rStatus := res.GetStatus(); rStatus != nil && !*rStatus {
-				if res.GetMessage() == nil {
-					return resp, fmt.Errorf("sdkerr: api error: unknown error")
-				} else {
-					return resp, fmt.Errorf("sdkerr: api error: message='%s'", *res.GetMessage())
-				}
+				return resp, fmt.Errorf("sdkerr: panel rejected the request")
 			}
 		}
 	}

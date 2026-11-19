@@ -2,6 +2,7 @@ import { type WorkflowModel } from "./workflow";
 
 export interface CertificateModel extends BaseModel {
   source: string;
+  ca?: string;
   certificate: string;
   privateKey: string;
   serialNumber: string;
@@ -27,6 +28,9 @@ export const CERTIFICATE_SOURCES = Object.freeze({
 } as const);
 
 export type CertificateSourceType = (typeof CERTIFICATE_SOURCES)[keyof typeof CERTIFICATE_SOURCES];
+
+export const isCommercialCertificate = (record: CertificateModel) =>
+  record.source === CERTIFICATE_SOURCES.REQUEST && ["aliyun", "tencentcloud", "ucloud"].includes(record.ca ?? "");
 
 export const CERTIFICATE_FORMATS = Object.freeze({
   PEM: "PEM",

@@ -13,7 +13,8 @@ import (
 )
 
 type Client struct {
-	rc *resty.Client
+	rc        *resty.Client
+	accountID string
 }
 
 func NewClient(optFns ...OptionsFunc) (*Client, error) {
@@ -22,18 +23,26 @@ func NewClient(optFns ...OptionsFunc) (*Client, error) {
 		fn(opts)
 	}
 
-	if opts.ApiToken == "" {
-		return nil, fmt.Errorf("sdkerr: unset apiToken")
+	if opts.ApiToken == "" && (opts.apiEmail == "" || opts.globalAPIKey == "") {
+		return nil, fmt.Errorf("sdkerr: missing Cloudflare credentials")
 	}
 
 	httper := resty.New().
 		SetBaseURL("https://api.cloudflare.com/client/v4").
 		SetHeader("Accept", "application/json").
-		SetHeader("Authorization", "Bearer "+opts.ApiToken).
+		SetRedirectPolicy(resty.NoRedirectPolicy()).
 		SetHeader("Content-Type", "application/json").
 		SetHeader("User-Agent", app.AppUserAgent)
 
-	return &Client{rc: httper}, nil
+	if opts.dnsTransport != nil {
+		httper.SetTransport(opts.dnsTransport)
+	}
+	if opts.ApiToken != "" {
+		httper.SetHeader("Authorization", "Bearer "+opts.ApiToken)
+	} else {
+		httper.SetHeader("X-Auth-Email", opts.apiEmail).SetHeader("X-Auth-Key", opts.globalAPIKey)
+	}
+	return &Client{rc: httper, accountID: opts.accountID}, nil
 }
 
 func (c *Client) SetTimeout(timeout time.Duration) *Client {

@@ -5,9 +5,12 @@
 
 vendor
 node_modules
+ui/node_modules
 
 build
+dist
 pb_data
+docker/data
 
 .tmp*
 *.tmp

@@ -1,60 +1,48 @@
 import { useTranslation } from "react-i18next";
-import { IconBook, IconBrandGithub, IconBrandTelegram, IconCoin, IconMessageChatbot } from "@tabler/icons-react";
+import { IconBook, IconBrandGithub, IconMessageChatbot } from "@tabler/icons-react";
 import { Badge, Button, Divider, List, Tooltip, Typography } from "antd";
 
-import { APP_DOCUMENT_URL, APP_DOWNLOAD_URL, APP_REPO_URL, APP_VERSION } from "@/domain/app";
+import { APP_DOCUMENT_URL, APP_REPO_URL, APP_VERSION } from "@/domain/app";
 import { useVersionChecker } from "@/hooks";
 
 const SettingsAbout = () => {
   const { t } = useTranslation();
 
-  const { hasUpdate } = useVersionChecker();
-
-  const handleDownloadClick = () => {
-    window.open(APP_DOWNLOAD_URL, "_blank");
-  };
-
-  const handleDocumentClick = () => {
-    window.open(APP_DOCUMENT_URL, "_blank");
-  };
-
-  const handleGithubClick = () => {
-    window.open(APP_REPO_URL, "_blank");
-  };
-
-  const handleTelegramClick = () => {
-    window.open("https://t.me/+ZXphsppxUg41YmVl", "_blank");
-  };
-
-  const handleDonateClick = () => {
-    window.open("https://profile.ikit.fun/sponsors/", "_blank");
-  };
-
-  const handleFeedbackClick = () => {
-    window.open(APP_REPO_URL + "/issues", "_blank");
-  };
+  const updateUrl = useVersionChecker();
 
   return (
     <>
-      <h2>Certimate</h2>
+      <h2>Certimate DNS</h2>
       <div className="mb-4">
         <div className="flex items-center gap-2">
           <Typography.Text type="secondary">Version: {APP_VERSION}</Typography.Text>
-          <Badge className="cursor-pointer" count={hasUpdate ? t("settings.about.version.new") : void 0} onClick={handleDownloadClick} />
+          {updateUrl && (
+            <a href={updateUrl} target="_blank" rel="noopener noreferrer">
+              <Badge count={t("settings.about.version.new")} />
+            </a>
+          )}
         </div>
       </div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <Tooltip title={t("settings.about.socials.document")}>
-          <Button type="text" icon={<IconBook size="1.5em" onClick={handleDocumentClick} />} />
+          <Button
+            type="text"
+            aria-label={t("settings.about.socials.document")}
+            icon={<IconBook size="1.5em" />}
+            href={APP_DOCUMENT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          />
         </Tooltip>
         <Tooltip title={t("settings.about.socials.github")}>
-          <Button type="text" icon={<IconBrandGithub size="1.5em" onClick={handleGithubClick} />} />
-        </Tooltip>
-        <Tooltip title={t("settings.about.socials.telegram")}>
-          <Button type="text" icon={<IconBrandTelegram size="1.5em" onClick={handleTelegramClick} />} />
-        </Tooltip>
-        <Tooltip title={t("settings.about.socials.donate")}>
-          <Button type="text" icon={<IconCoin size="1.5em" onClick={handleDonateClick} />} />
+          <Button
+            type="text"
+            aria-label={t("settings.about.socials.github")}
+            icon={<IconBrandGithub size="1.5em" />}
+            href={APP_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          />
         </Tooltip>
       </div>
 
@@ -72,7 +60,13 @@ const SettingsAbout = () => {
 
       <div className="md:max-w-160">
         <List bordered>
-          <List.Item extra={<Button onClick={handleFeedbackClick}>{t("settings.about.feedback.button")}</Button>}>
+          <List.Item
+            extra={
+              <Button href={`${APP_REPO_URL}/issues`} target="_blank" rel="noopener noreferrer">
+                {t("settings.about.feedback.button")}
+              </Button>
+            }
+          >
             <List.Item.Meta
               avatar={<IconMessageChatbot size="1.5em" />}
               title={t("settings.about.feedback.title")}

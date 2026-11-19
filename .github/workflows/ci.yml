@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 45
     env:
       CGO_ENABLED: '0'
+      GOFLAGS: '-trimpath'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -39,6 +40,7 @@ jobs:
         run: |
           npm --prefix ui ci
           npm --prefix ui run build
+          node --test ui/src/pages/dnsbatch/files.test.mjs tests/ui/*.test.mjs
           test -s ui/dist/index.html
       - name: Test DNS management in Chrome with a local provider fixture
         run: |
@@ -46,8 +48,19 @@ jobs:
           npm --prefix tests/browser test
       - name: Build Linux binary
         run: go build -mod=readonly -trimpath -ldflags="-s -w" -o "$RUNNER_TEMP/certimate" .
+      - name: Cross-build Windows IIS certificate binding helper
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -mod=readonly -o "$RUNNER_TEMP/certimate-iis-bind.exe" ./cmd/certimate-iis-bind
       - name: Run offline Go tests
-        run: go test -mod=readonly ./internal/... ./pkg/utils/... ./pkg/core/deployer/providers/k8s-secret ./pkg/sdk3rd/cloudflare
+        shell: bash
+        run: |
+          # Live vendor suites live under providers-tester and use external accounts.
+          mapfile -t packages < <(git ls-files 'pkg/*_test.go' | grep -v '/providers-tester/' | sed 's|/[^/]*$||; s|^|./|' | sort -u)
+          go test -mod=readonly ./cmd/dnsmgr-migrate ./internal/... "${packages[@]}"
+      - name: Exercise v0.4.38 database upgrade, grants, DNS CRUD and restart
+        run: python3 tests/integration/acceptance.py --binary "$RUNNER_TEMP/certimate"
       - name: Check first start with an empty database
         shell: bash
         run: |
@@ -62,3 +75,33 @@ jobs:
             status=$(curl --silent --output /dev/null --write-out '%{http_code}' -X "$method" "$endpoint")
             [[ "$status" == 401 || "$status" == 403 ]]
           done
+
+
+  container:
+    name: Build and start the documented source image
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Build using the Compose recipe
+        run: docker compose -f docker/docker-compose.yml build certimate
+      - name: Check the image entrypoint with disposable data
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/image-pb-data"
+          export CERTIMATE_ADMIN_PASSWORD="$(openssl rand -hex 24)"
+          docker run --detach --name certimate-image-check \
+            --publish 127.0.0.1:18091:8090 \
+            --mount "type=bind,source=$RUNNER_TEMP/image-pb-data,target=/app/pb_data" \
+            --env CERTIMATE_ADMIN_USERNAME=ci@example.test --env CERTIMATE_ADMIN_PASSWORD certimate-dns:local
+          trap 'docker stop certimate-image-check >/dev/null' EXIT
+          # Docker can accept and reset connections while PocketBase runs migrations.
+          curl --silent --show-error --fail --retry 25 --retry-all-errors --retry-delay 1 \
+            --max-time 4 --retry-max-time 45 --output "$RUNNER_TEMP/image-health.json" \
+            http://127.0.0.1:18091/api/health
+          jq -e '.code == 200' "$RUNNER_TEMP/image-health.json"
+          curl --silent --show-error --fail http://127.0.0.1:18091/ | grep -iq '<!doctype html'
+          test -s "$RUNNER_TEMP/image-pb-data/data.db"

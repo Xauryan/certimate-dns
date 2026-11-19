@@ -1,4 +1,4 @@
-**Certimate DNS** 基于 Certimate v0.4.38 二次开发。管理台已接入 Cloudflare 域名与解析记录管理，并支持导出 BIND 区域文件。阿里云 DNS 和腾讯云 DNSPod 管理适配器列入后续开发。[本地运行、源码映射与验收路线图](docs/dns-development.zh-CN.md)。
+**Certimate DNS** 基于 Certimate v0.4.38，支持 DNS 账号与域名目录、成员授权、批量解析、定时任务及证书工作流。各服务商的功能、验证结果和缺项见对照表。[本地运行](docs/dns-development.zh-CN.md) · [彩虹 DNS 功能对照](docs/dnsmgr-parity.zh-CN.md) · [迁移指南](docs/dnsmgr-migration.zh-CN.md)。
 
 <h1 align="center">🔒 Certimate</h1>
 
@@ -6,8 +6,7 @@
 
 [![Stars](https://img.shields.io/github/stars/certimate-go/certimate?style=flat)](https://github.com/certimate-go/certimate)
 [![Forks](https://img.shields.io/github/forks/certimate-go/certimate?style=flat)](https://github.com/certimate-go/certimate)
-[![Docker Pulls](https://img.shields.io/docker/pulls/certimate/certimate?style=flat)](https://hub.docker.com/r/certimate/certimate)
-[![Release](https://img.shields.io/github/v/release/certimate-go/certimate?style=flat&sort=semver)](https://github.com/certimate-go/certimate/releases)
+[![Certimate DNS Release](https://img.shields.io/github/v/release/Xauryan/certimate-dns?style=flat&sort=semver)](https://github.com/Xauryan/certimate-dns/releases)
 [![License](https://img.shields.io/github/license/certimate-go/certimate?style=flat)](https://mit-license.org/)
 
 </div>
@@ -59,43 +58,11 @@
 
 ## 🚀 快速启动
 
-**1 分钟运行 Certimate！**
+从 [Certimate DNS Releases](https://github.com/Xauryan/certimate-dns/releases) 下载对应平台的发行包，也可以[从本分支源码构建](docs/dns-development.zh-CN.md)。初始化空库之前，在服务环境中设置 `CERTIMATE_ADMIN_USERNAME` 和 `CERTIMATE_ADMIN_PASSWORD`。
 
-<details>
-<summary>👉 二进制安装：</summary>
+运行 `./certimate serve --dir ./pb_data --http 127.0.0.1:8090` 后，浏览器访问 `http://127.0.0.1:8090`。Compose 样例通过 `docker compose -f docker/docker-compose.yml up -d --build` 从分支源码构建，数据保存在 `docker/data/`。
 
-从 [GitHub Releases](https://github.com/certimate-go/certimate/releases) 页面下载预先编译好的可执行文件压缩包，解压缩后在终端中执行：
-
-```bash
-./certimate serve
-```
-
-</details>
-
-<details>
-<summary>👉 Docker 安装：</summary>
-
-```bash
-docker run -d \
-  --name certimate \
-  --restart unless-stopped \
-  -p 8090:8090 \
-  -v /etc/localtime:/etc/localtime:ro \
-  -v /etc/timezone:/etc/timezone:ro \
-  -v $(pwd)/data:/app/pb_data \
-  certimate/certimate:latest
-```
-
-</details>
-
-浏览器中访问 `http://127.0.0.1:8090`。
-
-初始的管理员账号及密码：
-
-- 账号：`admin@certimate.fun`
-- 密码：`1234567890`
-
-即刻使用 Certimate。或者阅读文档中的其他内容以了解更多。
+已有实例的备份、数据库迁移及回退步骤见[安装、升级与回退](docs/dns-development.zh-CN.md#安装升级与回退)。
 
 ## 📄 使用手册
 

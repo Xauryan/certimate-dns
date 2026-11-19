@@ -13,6 +13,7 @@ import CopyableText from "@/components/CopyableText";
 import Empty from "@/components/Empty";
 import Show from "@/components/Show";
 import { type AccessModel } from "@/domain/access";
+import { dnsAccountProviderLabels } from "@/domain/dnsAccount";
 import { ACCESS_USAGES, accessProvidersMap } from "@/domain/provider";
 import { useAppSettings, useZustandShallowSelector } from "@/hooks";
 import { get as getAccess } from "@/repository/access";
@@ -80,7 +81,11 @@ const AccessList = () => {
             <div className="flex max-w-full flex-col gap-1 truncate">
               <Typography.Text ellipsis>{record.name || "\u00A0"}</Typography.Text>
               <Typography.Text ellipsis type="secondary">
-                {t(accessProvidersMap.get(record.provider)?.name ?? "") || "\u00A0"}
+                {t(
+                  (filters["usage"] === "dns-management" ? dnsAccountProviderLabels.get(record.provider) : undefined) ??
+                    accessProvidersMap.get(record.provider)?.name ??
+                    ""
+                ) || "\u00A0"}
               </Typography.Text>
             </div>
           </div>
@@ -207,6 +212,8 @@ const AccessList = () => {
         .filter((e) => {
           const provider = accessProvidersMap.get(e.provider);
           switch (filters["usage"] as AccessUsages) {
+            case "dns-management":
+              return !e.reserve && dnsAccountProviderLabels.has(e.provider);
             case "dns":
               return !e.reserve && provider?.usages?.includes(ACCESS_USAGES.DNS);
             case "hosting":
@@ -393,6 +400,10 @@ const AccessList = () => {
             {
               key: "dns-hosting",
               label: t("access.props.usage.dns_hosting"),
+            },
+            {
+              key: "dns-management",
+              label: t("dns.manageAccounts"),
             },
             {
               key: "ca",

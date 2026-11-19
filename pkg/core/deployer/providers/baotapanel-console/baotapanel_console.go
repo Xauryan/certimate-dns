@@ -65,8 +65,8 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 		PrivateKey:  privkeyPEM,
 		Certificate: certPEM,
 	}
-	configSavePanelSSLResp, err := d.sdkClient.ConfigSavePanelSSLWithContext(ctx, configSavePanelSSLReq)
-	d.logger.Debug("sdk request 'config.SavePanelSSL'", slog.Any("request", configSavePanelSSLReq), slog.Any("response", configSavePanelSSLResp))
+	_, err := d.sdkClient.ConfigSavePanelSSLWithContext(ctx, configSavePanelSSLReq)
+	d.logger.Debug("sdk request 'config.SavePanelSSL'")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute sdk request 'config.SavePanelSSL': %w", err)
 	}
@@ -77,8 +77,8 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 			Name: "nginx",
 			Type: "restart",
 		}
-		systemServiceAdminResp, _ := d.sdkClient.SystemServiceAdminWithContext(ctx, systemServiceAdminReq)
-		d.logger.Debug("sdk request 'system.ServiceAdmin'", slog.Any("request", systemServiceAdminReq), slog.Any("response", systemServiceAdminResp))
+		_, _ = d.sdkClient.SystemServiceAdminWithContext(ctx, systemServiceAdminReq)
+		d.logger.Debug("sdk request 'system.ServiceAdmin'")
 	}
 
 	return &DeployResult{}, nil

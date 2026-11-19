@@ -8,6 +8,7 @@ import AccessForm, { type AccessFormUsages } from "@/components/access/AccessFor
 import AccessProviderPicker, { type AccessProviderPickerInstance } from "@/components/provider/AccessProviderPicker";
 import Show from "@/components/Show";
 import { type AccessModel } from "@/domain/access";
+import { dnsAccountProviderLabels } from "@/domain/dnsAccount";
 import { ACCESS_USAGES } from "@/domain/provider";
 import { useZustandShallowSelector } from "@/hooks";
 import { useAccessesStore } from "@/stores/access";
@@ -51,9 +52,9 @@ const AccessNew = () => {
       applyTrimmedFormValues(formInst);
       formValues = await formInst.validateFields();
       formValues.reserve = providerUsage === "ca" ? "ca" : providerUsage === "notification" ? "notif" : void 0;
-    } catch (err) {
+    } catch {
       setFormPending(false);
-      throw err;
+      return;
     }
 
     try {
@@ -62,8 +63,6 @@ const AccessNew = () => {
       navigate(`/accesses?usage=${providerUsage}`, { replace: true });
     } catch (err) {
       notification.error({ title: t("common.text.request_error"), description: unwrapErrMsg(err) });
-
-      throw err;
     } finally {
       setFormPending(false);
     }
@@ -83,6 +82,7 @@ const AccessNew = () => {
       <div className="container">
         <Show when={!fieldProvider}>
           <AccessProviderPicker
+            providerLabels={providerUsage === "dns-management" ? dnsAccountProviderLabels : undefined}
             ref={providerPickerRef}
             gap="large"
             placeholder={t("access.form.provider.search.placeholder")}

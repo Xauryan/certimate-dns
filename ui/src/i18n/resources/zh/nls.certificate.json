@@ -16,6 +16,7 @@
     "search.input": {
       "placeholder": "按证书名称或序列号搜索……"
     },
+    "manage_order": "管理证书订单",
     "view.menu": "查看详情",
     "revoke.menu": "吊销证书",
     "revoke.modal": {

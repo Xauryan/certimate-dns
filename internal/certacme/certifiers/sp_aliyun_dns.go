@@ -19,6 +19,7 @@ func init() {
 		provider, err := chlgimpl.NewChallenger(&chlgimpl.ChallengerConfig{
 			AccessKeyId:           credentials.AccessKeyId,
 			AccessKeySecret:       credentials.AccessKeySecret,
+			ResourceGroupId:       credentials.ResourceGroupId,
 			DnsPropagationTimeout: options.DnsPropagationTimeout,
 			DnsTTL:                options.DnsTTL,
 		})

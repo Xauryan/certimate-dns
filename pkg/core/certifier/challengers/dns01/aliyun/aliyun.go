@@ -6,12 +6,16 @@ import (
 
 	"github.com/go-acme/lego/v5/providers/dns/alidns"
 
+	"github.com/certimate-go/certimate/internal/dnsmanagement"
+	"github.com/certimate-go/certimate/internal/domain"
 	"github.com/certimate-go/certimate/pkg/core"
+	"github.com/certimate-go/certimate/pkg/core/certifier/challengers/dns01/internal/managedtxt"
 )
 
 type ChallengerConfig struct {
 	AccessKeyId           string `json:"accessKeyId"`
 	AccessKeySecret       string `json:"accessKeySecret"`
+	ResourceGroupId       string `json:"resourceGroupId,omitempty"`
 	DnsPropagationTimeout int    `json:"dnsPropagationTimeout,omitempty"`
 	DnsTTL                int    `json:"dnsTTL,omitempty"`
 }
@@ -22,8 +26,6 @@ func NewChallenger(config *ChallengerConfig) (core.ACMEChallenger, error) {
 	}
 
 	providerConfig := alidns.NewDefaultConfig()
-	providerConfig.APIKey = config.AccessKeyId
-	providerConfig.SecretKey = config.AccessKeySecret
 	if config.DnsPropagationTimeout != 0 {
 		providerConfig.PropagationTimeout = time.Duration(config.DnsPropagationTimeout) * time.Second
 	}
@@ -31,10 +33,18 @@ func NewChallenger(config *ChallengerConfig) (core.ACMEChallenger, error) {
 		providerConfig.TTL = config.DnsTTL
 	}
 
-	provider, err := alidns.NewDNSProviderConfig(providerConfig)
+	provider, err := dnsmanagement.NewAliyun(&domain.Access{Config: map[string]any{
+		"accessKeyId":     config.AccessKeyId,
+		"accessKeySecret": config.AccessKeySecret,
+		"resourceGroupId": config.ResourceGroupId,
+	}})
 	if err != nil {
 		return nil, err
 	}
-
-	return provider, nil
+	return managedtxt.New(provider, managedtxt.Config{
+		RequestTimeout:     providerConfig.HTTPTimeout,
+		TTL:                providerConfig.TTL,
+		PropagationTimeout: providerConfig.PropagationTimeout,
+		PollingInterval:    providerConfig.PollingInterval,
+	}), nil
 }

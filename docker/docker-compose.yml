@@ -1,8 +1,13 @@
-version: "3.0"
 services:
   certimate:
-    image: certimate/certimate:latest
+    build:
+      context: ..
+    image: certimate-dns:local
+    pull_policy: build
     container_name: certimate
+    environment:
+      - CERTIMATE_ADMIN_USERNAME
+      - CERTIMATE_ADMIN_PASSWORD
     ports:
       - 8090:8090
     volumes:

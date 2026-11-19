@@ -20,11 +20,11 @@ func NewACMEAccountRepository() *ACMEAccountRepository {
 	return &ACMEAccountRepository{}
 }
 
-func (r *ACMEAccountRepository) GetByCAAndEmail(ctx context.Context, ca, caDirUrl, email string) (*domain.ACMEAccount, error) {
+func (r *ACMEAccountRepository) GetByCAAndEmail(ctx context.Context, ca, caDirUrl, email, googleProjectID string) (*domain.ACMEAccount, error) {
 	record, err := app.GetApp().FindFirstRecordByFilter(
 		domain.CollectionNameACMEAccount,
-		"ca={:ca} && acmeDirUrl={:acmeDirUrl} && email={:email}",
-		dbx.Params{"ca": ca, "acmeDirUrl": caDirUrl, "email": email},
+		"ca={:ca} && acmeDirUrl={:acmeDirUrl} && email={:email} && googleProjectId={:project}",
+		dbx.Params{"ca": ca, "acmeDirUrl": caDirUrl, "email": email, "project": googleProjectID},
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -73,6 +73,7 @@ func (r *ACMEAccountRepository) Save(ctx context.Context, acmeAccount *domain.AC
 
 	record.Set("ca", acmeAccount.CA)
 	record.Set("email", acmeAccount.Email)
+	record.Set("googleProjectId", acmeAccount.GoogleProjectID)
 	record.Set("privateKey", acmeAccount.PrivateKey)
 	record.Set("acmeDirUrl", acmeAccount.ACMEDirectoryUrl)
 	record.Set("acmeAcctUrl", acmeAccount.ACMEAccountUrl)
@@ -105,6 +106,7 @@ func (r *ACMEAccountRepository) castRecordToModel(record *core.Record) (*domain.
 		},
 		CA:               record.GetString("ca"),
 		Email:            record.GetString("email"),
+		GoogleProjectID:  record.GetString("googleProjectId"),
 		PrivateKey:       record.GetString("privateKey"),
 		ACMEDirectoryUrl: record.GetString("acmeDirUrl"),
 		ACMEAccountUrl:   record.GetString("acmeAcctUrl"),

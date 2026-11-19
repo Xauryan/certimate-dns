@@ -1,7 +1,12 @@
 ﻿import { useEffect, useState } from "react";
 
+import { hostingPanelForms } from "@/components/provider/hostingPanelForms";
+import { panelAccessFields } from "@/domain/hostingPanelFields";
 import { ACCESS_PROVIDERS, type AccessProviderType } from "@/domain/provider";
 
+import { useFormNestedFieldsContext } from "./_context";
+import { AliyunMailFields, SendCloudFields, WxPusherFields } from "./AccessConfigFieldsAPINotification";
+import { BaotaDNSFields, DNSMgrFields, HENetFields } from "./AccessConfigFieldsDNSAccounts";
 import AccessConfigFieldsProvider1Panel from "./AccessConfigFieldsProvider1Panel";
 import AccessConfigFieldsProvider35cn from "./AccessConfigFieldsProvider35cn";
 import AccessConfigFieldsProvider51DNScom from "./AccessConfigFieldsProvider51DNScom";
@@ -130,6 +135,7 @@ import AccessConfigFieldsProviderZenlayer from "./AccessConfigFieldsProviderZenl
 import AccessConfigFieldsProviderZeroSSL from "./AccessConfigFieldsProviderZeroSSL";
 
 const providerComponentMap: Partial<Record<AccessProviderType, React.ComponentType<any>>> = {
+  ...hostingPanelForms(panelAccessFields, useFormNestedFieldsContext),
   /*
     注意：如果追加新的子组件，请保持以 ASCII 排序。
     NOTICE: If you add new child component, please keep ASCII order.
@@ -143,6 +149,7 @@ const providerComponentMap: Partial<Record<AccessProviderType, React.ComponentTy
   [ACCESS_PROVIDERS.ACTALISSSL]: AccessConfigFieldsProviderActalisSSL,
   [ACCESS_PROVIDERS.AKAMAI]: AccessConfigFieldsProviderAkamai,
   [ACCESS_PROVIDERS.ALIYUN]: AccessConfigFieldsProviderAliyun,
+  [ACCESS_PROVIDERS.ALIYUNESA]: () => <AccessConfigFieldsProviderAliyun esa />,
   [ACCESS_PROVIDERS.APISIX]: AccessConfigFieldsProviderAPISIX,
   [ACCESS_PROVIDERS.ARVANCLOUD]: AccessConfigFieldsProviderArvanCloud,
   [ACCESS_PROVIDERS.ASIAISPCDN]: AccessConfigFieldsProviderAsiaISPCDN,
@@ -156,6 +163,7 @@ const providerComponentMap: Partial<Record<AccessProviderType, React.ComponentTy
   [ACCESS_PROVIDERS.BAOTAWAF]: AccessConfigFieldsProviderBaotaWAF,
   [ACCESS_PROVIDERS.BEGET]: AccessConfigFieldsProviderBeget,
   [ACCESS_PROVIDERS.BOOKMYNAME]: AccessConfigFieldsProviderBookMyName,
+  [ACCESS_PROVIDERS.BT]: BaotaDNSFields,
   [ACCESS_PROVIDERS.BUNNY]: AccessConfigFieldsProviderBunny,
   [ACCESS_PROVIDERS.BYTEPLUS]: AccessConfigFieldsProviderBytePlus,
   [ACCESS_PROVIDERS.CACHEFLY]: AccessConfigFieldsProviderCacheFly,
@@ -175,12 +183,16 @@ const providerComponentMap: Partial<Record<AccessProviderType, React.ComponentTy
   [ACCESS_PROVIDERS.DNSEXIT]: AccessConfigFieldsProviderDNSExit,
   [ACCESS_PROVIDERS.DNSLA]: AccessConfigFieldsProviderDNSLA,
   [ACCESS_PROVIDERS.DNSMADEEASY]: AccessConfigFieldsProviderDNSMadeEasy,
+  [ACCESS_PROVIDERS.DNSMGR]: DNSMgrFields,
   [ACCESS_PROVIDERS.DOKPLOY]: AccessConfigFieldsProviderDokploy,
   [ACCESS_PROVIDERS.DOGECLOUD]: AccessConfigFieldsProviderDogeCloud,
   [ACCESS_PROVIDERS.DUCKDNS]: AccessConfigFieldsProviderDuckDNS,
   [ACCESS_PROVIDERS.DYNADOT]: AccessConfigFieldsProviderDynadot,
   [ACCESS_PROVIDERS.DYNU]: AccessConfigFieldsProviderDynu,
   [ACCESS_PROVIDERS.DYNV6]: AccessConfigFieldsProviderDynv6,
+  [ACCESS_PROVIDERS.ALIYUNMAIL]: AliyunMailFields,
+  [ACCESS_PROVIDERS.SENDCLOUD]: SendCloudFields,
+  [ACCESS_PROVIDERS.WXPUSHER]: WxPusherFields,
   [ACCESS_PROVIDERS.EMAIL]: AccessConfigFieldsProviderEmail,
   [ACCESS_PROVIDERS.FLEXCDN]: AccessConfigFieldsProviderFlexCDN,
   [ACCESS_PROVIDERS.FLYIO]: AccessConfigFieldsProviderFlyIO,
@@ -193,6 +205,7 @@ const providerComponentMap: Partial<Record<AccessProviderType, React.ComponentTy
   [ACCESS_PROVIDERS.GOEDGE]: AccessConfigFieldsProviderGoEdge,
   [ACCESS_PROVIDERS.GOOGLECLOUD]: AccessConfigFieldsProviderGoogleCloud,
   [ACCESS_PROVIDERS.GOOGLETRUSTSERVICES]: AccessConfigFieldsProviderGoogleTrustServices,
+  [ACCESS_PROVIDERS.HENET]: HENetFields,
   [ACCESS_PROVIDERS.HETZNER]: AccessConfigFieldsProviderHetzner,
   [ACCESS_PROVIDERS.HOSTINGDE]: AccessConfigFieldsProviderHostingde,
   [ACCESS_PROVIDERS.HOSTINGER]: AccessConfigFieldsProviderHostinger,
@@ -245,6 +258,7 @@ const providerComponentMap: Partial<Record<AccessProviderType, React.ComponentTy
   [ACCESS_PROVIDERS.TECHNITIUMDNS]: AccessConfigFieldsProviderTechnitiumDNS,
   [ACCESS_PROVIDERS.TELEGRAMBOT]: AccessConfigFieldsProviderTelegramBot,
   [ACCESS_PROVIDERS.TENCENTCLOUD]: AccessConfigFieldsProviderTencentCloud,
+  [ACCESS_PROVIDERS.TENCENTEO]: () => <AccessConfigFieldsProviderTencentCloud edgeOne />,
   [ACCESS_PROVIDERS.TODAYNIC]: AccessConfigFieldsProviderTodayNIC,
   [ACCESS_PROVIDERS.UCLOUD]: AccessConfigFieldsProviderUCloud,
   [ACCESS_PROVIDERS.UNICLOUD]: AccessConfigFieldsProviderUniCloud,

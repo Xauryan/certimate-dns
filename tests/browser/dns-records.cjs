@@ -1,27 +1,14 @@
 const { chromium } = require("playwright-core");
-const http = require("node:http"),
-  fs = require("node:fs/promises"),
-  path = require("node:path"),
-  assert = require("node:assert/strict");
-(async () => {
-  const root = path.resolve(__dirname, "../../ui/dist");
-  const server = http.createServer(async (req, res) => {
-    const p = new URL(req.url, "http://localhost").pathname;
-    const types = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".svg": "image/svg+xml" };
-    const name = path.join(root, p === "/" ? "index.html" : p);
-    try {
-      const data = await fs.readFile(name);
-      res.writeHead(200, { "Content-Type": types[path.extname(name)] || "application/octet-stream" });
-      res.end(data);
-    } catch {
-      res.writeHead(404).end();
-    }
-  });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const assert = require("node:assert/strict");
+const { withConsole } = require("./serve-console.cjs");
+withConsole(async (address) => {
+  const { testDNSBatch } = require("./dns-batch.cjs");
+  const { testDNSPermissions } = require("./dns-permissions.cjs");
   const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN || "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox"] });
   try {
     const page = await browser.newPage({ locale: "en-US" });
     page.setDefaultTimeout(7000);
+    await page.route(/^https?:\/\//, (route) => (new URL(route.request().url()).origin === address ? route.fallback() : route.abort()));
     const errs = [];
     page.on("pageerror", (e) => errs.push(e.message));
     await page.addInitScript(() => {
@@ -34,18 +21,36 @@ const http = require("node:http"),
     let records = [];
     const methods = [];
     let failNextPatch = true;
+    let allowRichEdit = false;
     await page.route("**/api/**", async (route) => {
       const req = route.request(),
         u = new URL(req.url());
       let data;
-      if (u.pathname.includes("/collections/access/records"))
-        return route.fulfill({
-          json: { page: 1, perPage: 20, totalPages: 1, totalItems: 1, items: [{ id: "testaccess", provider: "cloudflare", name: "Test account" }] },
-        });
       const m = req.method();
-      if (u.pathname.endsWith("/zones")) data = { result: [zone], result_info: { page: 1, total_count: 1 } };
+      if (u.pathname === "/api/dns/providers") data = ["cloudflare", "powerdns"];
+      else if (u.pathname === "/api/dns-catalog/accounts")
+        data = [
+          { id: "testaccess", provider: "cloudflare", name: "Test account", enabled: true },
+          { id: "powerfixture", provider: "powerdns", name: "Second provider", enabled: true },
+          { id: "disabledfixture", provider: "cloudflare", name: "Disabled account", enabled: false },
+          { id: "unsupportedfixture", provider: "other", name: "Unsupported credential", enabled: true },
+        ];
+      else if (u.pathname === "/api/dns/capabilities/cloudflare")
+        data = {
+          types: ["A", "AAAA", "CNAME", "TXT", "MX"],
+          priorityTypes: ["MX"],
+          minTTL: 30,
+          maxTTL: 86400,
+          defaultTTL: 1,
+          specialTTLs: [1],
+          line: true,
+          description: true,
+          export: true,
+        };
+      else if (u.pathname.endsWith("/advanced/details")) data = { name: zone.name, lines: [{ id: "0", name: "DNS only" }] };
+      else if (u.pathname.endsWith("/zones")) data = { result: [zone], result_info: { page: 1, total_count: 1 } };
       else if (u.pathname.endsWith("/export")) data = 'example.org. 300 IN TXT "test"';
-      else if (m === "GET") data = { result: records, result_info: { page: 1, total_count: records.length } };
+      else if (m === "GET") data = { result: records, result_info: { page: 1, total_count: records.length }, edit: { rename: allowRichEdit, retype: allowRichEdit, priority: allowRichEdit } };
       else {
         methods.push(m);
         if (m === "POST") records = [{ id, ...req.postDataJSON(), proxied: false }];
@@ -54,18 +59,40 @@ const http = require("node:http"),
           return route.fulfill({ json: { code: 500, msg: "Fixture denied change", data: null } });
         }
         if (m === "PATCH") {
-          assert.deepEqual(Object.keys(req.postDataJSON()).sort(), ["content", "ttl"]);
-          Object.assign(records[0], req.postDataJSON());
+          const { expected, ...desired } = req.postDataJSON();
+          if (allowRichEdit) {
+            assert.equal(u.searchParams.get("page"), "1");
+            assert.deepEqual(expected, records[0]);
+            assert.equal(desired.name, "mail.example.org");
+            assert.equal(desired.type, "MX");
+            assert.equal(desired.priority, 15);
+          } else {
+            assert.equal(expected, undefined);
+            assert.deepEqual(Object.keys(desired).sort(), ["content", "ttl"]);
+            allowRichEdit = true;
+          }
+          Object.assign(records[0], desired);
         }
         if (m === "DELETE") records = [];
         data = id;
       }
       await route.fulfill({ json: { code: 0, msg: "success", data } });
     });
-    await page.goto("http://127.0.0.1:" + server.address().port + "/#/dns");
+    await page.goto(address + "/#/dns");
+    await page.locator("#dns-account").click();
+    await page.getByText(/Second provider/).waitFor();
+    assert.equal(await page.getByText("Disabled account", { exact: false }).count(), 0);
+    assert.equal(await page.getByText("Unsupported credential", { exact: false }).count(), 0);
+    await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "example.org", exact: true }).click();
     await page.getByRole("button", { name: /Add record|添加记录/ }).click();
     let modal = page.getByRole("dialog");
+    await modal.locator("#type").click();
+    await page.locator(".ant-select-dropdown:visible").getByText("MX", { exact: true }).click();
+    await modal.locator("#priority").waitFor();
+    await modal.locator("#type").click();
+    await page.locator(".ant-select-dropdown:visible").getByText("A", { exact: true }).click();
+    await modal.locator("#priority").waitFor({ state: "detached" });
     await modal.locator("input#name").fill("www.example.org");
     await modal.locator("textarea").fill("192.0.2.1");
     await modal.locator("button.ant-btn-primary").click();
@@ -78,6 +105,17 @@ const http = require("node:http"),
     assert.equal(records[0].content, "192.0.2.1");
     await modal.locator("button.ant-btn-primary").click();
     await page.getByRole("cell", { name: "192.0.2.2" }).waitFor();
+    await page.reload();
+    await page.getByRole("cell", { name: "www.example.org" }).waitFor();
+    await page.getByRole("button", { name: /Edit record|编辑记录/ }).click();
+    modal = page.getByRole("dialog");
+    await modal.locator("#type").click();
+    await page.locator(".ant-select-dropdown:visible").getByText("MX", { exact: true }).click();
+    await modal.locator("input#name").fill("mail.example.org");
+    await modal.locator("#priority").fill("15");
+    await modal.locator("textarea").fill("mx.example.org");
+    await modal.locator("button.ant-btn-primary").click();
+    await page.getByRole("cell", { name: "mail.example.org", exact: true }).waitFor();
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: /Export BIND|导出 BIND/ }).click();
     assert.equal((await download).suggestedFilename(), "example.org.zone");
@@ -86,16 +124,23 @@ const http = require("node:http"),
       .getByRole("dialog")
       .getByRole("button", { name: /^Delete$|^删除$/ })
       .click();
-    await page.getByRole("cell", { name: "www.example.org" }).waitFor({ state: "detached" });
-    assert.deepEqual(methods, ["POST", "PATCH", "PATCH", "DELETE"]);
+    await page.getByRole("cell", { name: "mail.example.org" }).waitFor({ state: "detached" });
+    assert.deepEqual(methods, ["POST", "PATCH", "PATCH", "PATCH", "DELETE"]);
     assert.deepEqual(errs, []);
-    console.log("PASS authenticated UI fixture: select zone, add, edit, export, confirm deletion");
+    await page.goto(address + "/#/dns?access=disabledfixture");
+    await page
+      .getByRole("alert")
+      .getByText(/unavailable|不可用/)
+      .waitFor();
+    assert.equal(await page.getByRole("button", { name: "example.org" }).count(), 0);
+    console.log("PASS admin DNS records, server capabilities, enabled accounts, deep links, export and deletion");
+    await page.close();
+    await testDNSPermissions(browser, address);
+    await testDNSBatch(browser, address);
   } finally {
     await browser.close();
-    server.closeAllConnections();
-    server.close();
   }
-})().catch((e) => {
+}).catch((e) => {
   console.error(e);
   process.exit(1);
 });

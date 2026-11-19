@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 
+import { hostingPanelForms } from "@/components/provider/hostingPanelForms";
+import { panelDeploymentFields } from "@/domain/hostingPanelFields";
 import { DEPLOYMENT_PROVIDERS, type DeploymentProviderType } from "@/domain/provider";
 
+import { useFormNestedFieldsContext } from "./_context";
 import BizDeployNodeConfigFieldsProvider1Panel from "./BizDeployNodeConfigFieldsProvider1Panel";
 import BizDeployNodeConfigFieldsProvider1PanelConsole from "./BizDeployNodeConfigFieldsProvider1PanelConsole";
 import BizDeployNodeConfigFieldsProviderAliyunALB from "./BizDeployNodeConfigFieldsProviderAliyunALB";
@@ -147,6 +150,7 @@ import BizDeployNodeConfigFieldsProviderVolcEngineVOD from "./BizDeployNodeConfi
 import BizDeployNodeConfigFieldsProviderVolcEngineWAF from "./BizDeployNodeConfigFieldsProviderVolcEngineWAF";
 import BizDeployNodeConfigFieldsProviderWangsuCDN from "./BizDeployNodeConfigFieldsProviderWangsuCDN";
 import BizDeployNodeConfigFieldsProviderWangsuCDNPro from "./BizDeployNodeConfigFieldsProviderWangsuCDNPro";
+import WangsuCDNProCertificateFields from "./WangsuCDNProCertificateFields";
 import BizDeployNodeConfigFieldsProviderWangsuCertificate from "./BizDeployNodeConfigFieldsProviderWangsuCertificate";
 import BizDeployNodeConfigFieldsProviderWebhook from "./BizDeployNodeConfigFieldsProviderWebhook";
 import BizDeployNodeConfigFieldsProviderYandexCloudCertificateManager from "./BizDeployNodeConfigFieldsProviderYandexCloudCertificateManager";
@@ -154,6 +158,7 @@ import BizDeployNodeConfigFieldsProviderZenlayerCDN from "./BizDeployNodeConfigF
 import BizDeployNodeConfigFieldsProviderZenlayerGA from "./BizDeployNodeConfigFieldsProviderZenlayerGA";
 
 const providerComponentMap: Partial<Record<DeploymentProviderType, React.ComponentType<any>>> = {
+  ...hostingPanelForms(panelDeploymentFields, useFormNestedFieldsContext),
   /*
     注意：如果追加新的子组件，请保持以 ASCII 排序。
     NOTICE: If you add new child component, please keep ASCII order.
@@ -303,6 +308,7 @@ const providerComponentMap: Partial<Record<DeploymentProviderType, React.Compone
   [DEPLOYMENT_PROVIDERS.VOLCENGINE_WAF]: BizDeployNodeConfigFieldsProviderVolcEngineWAF,
   [DEPLOYMENT_PROVIDERS.WANGSU_CDN]: BizDeployNodeConfigFieldsProviderWangsuCDN,
   [DEPLOYMENT_PROVIDERS.WANGSU_CDNPRO]: BizDeployNodeConfigFieldsProviderWangsuCDNPro,
+  [DEPLOYMENT_PROVIDERS.WANGSU_CDNPRO_CERTIFICATE]: WangsuCDNProCertificateFields,
   [DEPLOYMENT_PROVIDERS.WANGSU_CERTIFICATE]: BizDeployNodeConfigFieldsProviderWangsuCertificate,
   [DEPLOYMENT_PROVIDERS.WEBHOOK]: BizDeployNodeConfigFieldsProviderWebhook,
   [DEPLOYMENT_PROVIDERS.YANDEXCLOUD_CERTIFICATEMANAGER]: BizDeployNodeConfigFieldsProviderYandexCloudCertificateManager,

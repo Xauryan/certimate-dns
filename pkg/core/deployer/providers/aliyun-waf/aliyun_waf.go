@@ -34,7 +34,7 @@ type DeployerConfig struct {
 	// 阿里云地域。
 	Region string `json:"region"`
 	// 服务版本。
-	// 可取值 "3.0"。
+	// 可取值 "2.0" 或 "3.0"。
 	ServiceVersion string `json:"serviceVersion"`
 	// 服务类型。
 	ServiceType string `json:"serviceType"`
@@ -102,6 +102,10 @@ func (d *Deployer) SetLogger(logger *slog.Logger) {
 
 func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*DeployResult, error) {
 	switch d.config.ServiceVersion {
+	case "2", "2.0":
+		if err := d.deployToWAF2(ctx, certPEM, privkeyPEM); err != nil {
+			return nil, err
+		}
 	case "3", "3.0":
 		if err := d.deployToWAF3(ctx, certPEM, privkeyPEM); err != nil {
 			return nil, err

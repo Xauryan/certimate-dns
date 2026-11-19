@@ -3,6 +3,7 @@ package deployers
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/certimate-go/certimate/internal/domain"
 	"github.com/certimate-go/certimate/pkg/core"
@@ -72,6 +73,7 @@ func init() {
 			SecretDataKeyForCrtOnlyIntermedia: xmaps.GetString(options.ProviderExtendedConfig, "secretDataKeyForCrtOnlyIntermedia"),
 			SecretAnnotations:                 secretAnnotations,
 			SecretLabels:                      secretLabels,
+			Ingresses:                         strings.FieldsFunc(xmaps.GetString(options.ProviderExtendedConfig, "ingresses"), func(r rune) bool { return r == ',' || unicode.IsSpace(r) }),
 		})
 		return provider, err
 	})

@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -41,16 +42,41 @@ type bizUploadNodeExecutor struct {
 }
 
 const (
-	BizUploadSourceForm  = "form"
-	BizUploadSourceLocal = "local"
-	BizUploadSourceURL   = "url"
+	BizUploadSourceInventory = "inventory"
+	BizUploadSourceForm      = "form"
+	BizUploadSourceLocal     = "local"
+	BizUploadSourceURL       = "url"
 )
 
 func (ne *bizUploadNodeExecutor) Execute(execCtx *NodeExecutionContext) (*NodeExecutionResult, error) {
 	execRes := newNodeExecutionResult(execCtx.Node)
 
 	nodeCfg := execCtx.Node.Data.Config.AsBizUpload()
-	ne.logger.Info("ready to upload certiticate ...", slog.Any("config", nodeCfg))
+	switch nodeCfg.Source {
+	case BizUploadSourceInventory, BizUploadSourceForm, BizUploadSourceLocal, BizUploadSourceURL:
+	default:
+		return execRes, errors.New("unsupported certificate input source")
+	}
+	ne.logger.Info("reading certificate input", slog.String("source", nodeCfg.Source))
+
+	// An inventory reference belongs to its original issuer or workflow. Resolve
+	// the current record on every run without saving a duplicate certificate.
+	if nodeCfg.Source == BizUploadSourceInventory {
+		certificate, err := ne.certificateRepo.GetById(execCtx.Context(), nodeCfg.CertificateID)
+		if err != nil {
+			if ctxErr := execCtx.Context().Err(); ctxErr != nil {
+				return execRes, ctxErr
+			}
+			return execRes, errors.New("could not load inventory certificate")
+		}
+		if err := validateInventoryCertificate(certificate, time.Now()); err != nil {
+			return execRes, err
+		}
+		ne.setOuputsOfResult(execCtx, execRes, certificate, true)
+		ne.setVariablesOfResult(execCtx, execRes, certificate)
+		execRes.AddVariableWithScope(execCtx.Node.Id, stateVarKeyNodeSkipped, false, stateValTypeBoolean)
+		return execRes, nil
+	}
 
 	// 查询上次执行结果
 	lastOutput, lastCertificate, err := ne.getLastOutputArtifacts(execCtx)
@@ -128,8 +154,6 @@ func (ne *bizUploadNodeExecutor) Execute(execCtx *NodeExecutionContext) (*NodeEx
 			}
 		}
 
-	default:
-		return execRes, fmt.Errorf("unsupported upload source: '%s'", nodeCfg.Source)
 	}
 
 	// 二次检测是否可以跳过执行

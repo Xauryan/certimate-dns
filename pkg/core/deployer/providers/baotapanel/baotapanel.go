@@ -12,6 +12,7 @@ import (
 
 	"github.com/certimate-go/certimate/pkg/core"
 	btpanelsdk "github.com/certimate-go/certimate/pkg/sdk3rd/btpanel"
+	"github.com/certimate-go/certimate/pkg/utils/cert/hostname"
 	xloop "github.com/certimate-go/certimate/pkg/utils/loop"
 	xwait "github.com/certimate-go/certimate/pkg/utils/wait"
 )
@@ -42,7 +43,7 @@ type Deployer struct {
 
 var _ Provider = (*Deployer)(nil)
 
-var btProjectTypes = []string{"php", "java", "nodejs", "go", "python", "proxy", "html", "general"}
+var btProjectTypes = []string{"php", "java", "nodejs", "go", "python", "proxy", "html", "general", "docker", "mail"}
 
 func NewDeployer(config *DeployerConfig) (*Deployer, error) {
 	if config == nil {
@@ -74,6 +75,13 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 		return nil, fmt.Errorf("config `siteNames` is required")
 	}
 
+	if d.config.SiteType == "docker" || d.config.SiteType == "mail" {
+		for _, name := range d.config.SiteNames {
+			if !hostname.IsDNSName(name) {
+				return nil, errors.New("a valid ASCII domain is required for each Docker or mail target")
+			}
+		}
+	}
 	switch d.config.SiteType {
 	case "any":
 		{
@@ -114,6 +122,14 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 
 func (d *Deployer) updateSiteCertificate(ctx context.Context, siteType, siteName string, certPEM, privkeyPEM string) error {
 	switch siteType {
+	case "docker":
+		if err := d.sdkClient.SetDockerSiteCertificate(ctx, siteName, certPEM, privkeyPEM); err != nil {
+			return fmt.Errorf("install Docker site certificate for %q: %w", siteName, err)
+		}
+	case "mail":
+		if err := d.sdkClient.SetMailDomainCertificate(ctx, siteName, certPEM, privkeyPEM); err != nil {
+			return fmt.Errorf("install mail domain certificate for %q: %w", siteName, err)
+		}
 	case "proxy":
 		{
 			// 设置代理 SSL 证书
@@ -122,8 +138,8 @@ func (d *Deployer) updateSiteCertificate(ctx context.Context, siteType, siteName
 				Certificate: certPEM,
 				PrivateKey:  privkeyPEM,
 			}
-			modProxyComSetSSLResp, err := d.sdkClient.ModProxyComSetSSLWithContext(ctx, modProxyComSetSSLReq)
-			d.logger.Debug("sdk request 'mod.proxy.com.SetSSL'", slog.Any("request", modProxyComSetSSLReq), slog.Any("response", modProxyComSetSSLResp))
+			_, err := d.sdkClient.ModProxyComSetSSLWithContext(ctx, modProxyComSetSSLReq)
+			d.logger.Debug("sdk request 'mod.proxy.com.SetSSL'")
 			if err != nil {
 				return fmt.Errorf("failed to execute sdk request 'mod.proxy.com.SetSSL': %w", err)
 			}
@@ -138,8 +154,8 @@ func (d *Deployer) updateSiteCertificate(ctx context.Context, siteType, siteName
 				Certificate: certPEM,
 				PrivateKey:  privkeyPEM,
 			}
-			siteSetSSLResp, err := d.sdkClient.SiteSetSSLWithContext(ctx, siteSetSSLReq)
-			d.logger.Debug("sdk request 'site.SetSSL'", slog.Any("request", siteSetSSLReq), slog.Any("response", siteSetSSLResp))
+			_, err := d.sdkClient.SiteSetSSLWithContext(ctx, siteSetSSLReq)
+			d.logger.Debug("sdk request 'site.SetSSL'")
 			if err != nil {
 				return fmt.Errorf("failed to execute sdk request 'site.SetSSL': %w", err)
 			}
@@ -156,7 +172,7 @@ func (d *Deployer) updateSitesCertificateByAny(ctx context.Context, siteNames []
 		PrivateKey:  privkeyPEM,
 	}
 	sslCertSaveCertResp, err := d.sdkClient.SSLCertSaveCertWithContext(ctx, sslCertSaveCertReq)
-	d.logger.Debug("sdk request 'ssl.cert.SaveCert'", slog.Any("request", sslCertSaveCertReq), slog.Any("response", sslCertSaveCertResp))
+	d.logger.Debug("sdk request 'ssl.cert.SaveCert'")
 	if err != nil {
 		return fmt.Errorf("failed to execute sdk request 'ssl.cert.SaveCert': %w", err)
 	}
@@ -170,8 +186,8 @@ func (d *Deployer) updateSitesCertificateByAny(ctx context.Context, siteNames []
 			}
 		}),
 	}
-	sslSetBatchCertToSiteResp, err := d.sdkClient.SSLSetBatchCertToSiteWithContext(ctx, sslSetBatchCertToSiteReq)
-	d.logger.Debug("sdk request 'ssl.SetBatchCertToSite'", slog.Any("request", sslSetBatchCertToSiteReq), slog.Any("response", sslSetBatchCertToSiteResp))
+	_, err = d.sdkClient.SSLSetBatchCertToSiteWithContext(ctx, sslSetBatchCertToSiteReq)
+	d.logger.Debug("sdk request 'ssl.SetBatchCertToSite'")
 	if err != nil {
 		return fmt.Errorf("failed to execute sdk request 'ssl.SetBatchCertToSite': %w", err)
 	}
@@ -186,19 +202,22 @@ func (d *Deployer) updateSitesCertificateByAnyV2(ctx context.Context, siteNames 
 		PrivateKey:  privkeyPEM,
 	}
 	sslDomainUploadCertV2Resp, err := d.sdkClient.SSLDomainUploadCertV2WithContext(ctx, sslDomainUploadCertV2Req)
-	d.logger.Debug("sdk request 'v2.ssldomain.UploadCert'", slog.Any("request", sslDomainUploadCertV2Req), slog.Any("response", sslDomainUploadCertV2Resp))
+	d.logger.Debug("sdk request 'v2.ssldomain.UploadCert'")
 	if err != nil {
 		return fmt.Errorf("failed to execute sdk request 'v2.ssldomain.UploadCert': %w", err)
 	}
 
+	if sslDomainUploadCertV2Resp.Message == nil || sslDomainUploadCertV2Resp.Message.SSLHash == "" {
+		return fmt.Errorf("panel did not return the certificate hash")
+	}
 	// 设置站点证书
 	sslDomainCertDeploySitesV2Req := &btpanelsdk.SSLDomainCertDeploySitesV2Request{
 		SSLHash: sslDomainUploadCertV2Resp.Message.SSLHash,
 		Domains: siteNames,
 		Append:  1,
 	}
-	sslDomainCertDeploySitesV2Resp, err := d.sdkClient.SSLDomainCertDeploySitesV2WithContext(ctx, sslDomainCertDeploySitesV2Req)
-	d.logger.Debug("sdk request 'v2.ssldomain.CertDeploySites'", slog.Any("request", sslDomainCertDeploySitesV2Req), slog.Any("response", sslDomainCertDeploySitesV2Resp))
+	_, err = d.sdkClient.SSLDomainCertDeploySitesV2WithContext(ctx, sslDomainCertDeploySitesV2Req)
+	d.logger.Debug("sdk request 'v2.ssldomain.CertDeploySites'")
 	if err != nil {
 		return fmt.Errorf("failed to execute sdk request 'v2.ssldomain.CertDeploySites': %w", err)
 	}

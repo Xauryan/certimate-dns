@@ -5,6 +5,7 @@ import { type AnchorProps, Form, type FormInstance, Input, Radio } from "antd";
 import { createSchemaFieldRule } from "antd-zod";
 import { z } from "zod";
 
+import InventoryCertificateSelect from "@/components/certificate/InventoryCertificateSelect";
 import FileTextInput from "@/components/FileTextInput";
 import Show from "@/components/Show";
 import Tips from "@/components/Tips";
@@ -23,6 +24,7 @@ export interface BizUploadNodeConfigFormProps {
 const UPLOAD_SOURCE_FORM = "form" as const;
 const UPLOAD_SOURCE_LOCAL = "local" as const;
 const UPLOAD_SOURCE_URL = "url" as const;
+const UPLOAD_SOURCE_INVENTORY = "inventory" as const;
 
 const BizUploadNodeConfigForm = ({ node, ...props }: BizUploadNodeConfigFormProps) => {
   if (node.flowNodeType !== NodeType.BizUpload) {
@@ -54,9 +56,10 @@ const BizUploadNodeConfigForm = ({ node, ...props }: BizUploadNodeConfigFormProp
 
   const handleSourceChange = (value: string) => {
     if (value === initialValues?.source) {
-      formInst.resetFields(["certificate", "privateKey"]);
+      formInst.resetFields(["certificate", "privateKey", "certificateId"]);
     } else {
       setTimeout(() => {
+        formInst.setFieldValue("certificateId", undefined);
         formInst.setFieldValue("certificate", "");
         formInst.setFieldValue("privateKey", "");
       }, 0);
@@ -70,6 +73,7 @@ const BizUploadNodeConfigForm = ({ node, ...props }: BizUploadNodeConfigFormProp
           <Form.Item name="source" label={t("workflow_node.upload.form.source.label")} rules={[formRule]}>
             <Radio.Group block onChange={(e) => handleSourceChange(e.target.value)}>
               <Radio.Button value={UPLOAD_SOURCE_FORM}>{t("workflow_node.upload.form.source.option.form.label")}</Radio.Button>
+              <Radio.Button value={UPLOAD_SOURCE_INVENTORY}>{t("workflow_node.upload.form.source.option.inventory.label")}</Radio.Button>
               <Radio.Button value={UPLOAD_SOURCE_LOCAL}>{t("workflow_node.upload.form.source.option.local.label")}</Radio.Button>
               <Radio.Button value={UPLOAD_SOURCE_URL}>{t("workflow_node.upload.form.source.option.url.label")}</Radio.Button>
             </Radio.Group>
@@ -86,6 +90,12 @@ const BizUploadNodeConfigForm = ({ node, ...props }: BizUploadNodeConfigFormProp
 
             <Form.Item name="privateKey" label={t("workflow_node.upload.form.private_key_pem.label")} rules={[formRule]}>
               <FileTextInput autoSize={{ minRows: 3, maxRows: 10 }} placeholder={t("workflow_node.upload.form.private_key_pem.placeholder")} />
+            </Form.Item>
+          </Show>
+
+          <Show when={fieldSource === UPLOAD_SOURCE_INVENTORY}>
+            <Form.Item name="certificateId" label={t("workflow_node.upload.form.inventory.label")} rules={[formRule]}>
+              <InventoryCertificateSelect />
             </Form.Item>
           </Show>
 
@@ -146,13 +156,19 @@ const getSchema = ({ i18n = getI18n() }: { i18n?: ReturnType<typeof getI18n> }) 
 
   return z
     .object({
-      source: z.enum([UPLOAD_SOURCE_FORM, UPLOAD_SOURCE_LOCAL, UPLOAD_SOURCE_URL]).default(UPLOAD_SOURCE_FORM),
+      source: z.enum([UPLOAD_SOURCE_FORM, UPLOAD_SOURCE_LOCAL, UPLOAD_SOURCE_URL, UPLOAD_SOURCE_INVENTORY]).default(UPLOAD_SOURCE_FORM),
       name: z.string().nullish(),
-      certificate: z.string().nonempty(),
-      privateKey: z.string().nonempty(),
+      certificate: z.string().optional(),
+      privateKey: z.string().optional(),
+      certificateId: z.string().optional(),
     })
     .superRefine((values, ctx) => {
       switch (values.source) {
+        case UPLOAD_SOURCE_INVENTORY:
+          if (!values.certificateId?.trim()) {
+            ctx.addIssue({ code: "custom", message: t("workflow_node.upload.form.inventory.placeholder"), path: ["certificateId"] });
+          }
+          break;
         case UPLOAD_SOURCE_FORM:
           {
             const scCertificate = z.string().refine((v) => validatePEMCertificate(v), t("workflow_node.upload.form.certificate_pem.errmsg.invalid"));

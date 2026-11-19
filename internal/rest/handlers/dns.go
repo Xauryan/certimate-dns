@@ -3,56 +3,54 @@ package handlers
 import (
 	"context"
 	"errors"
+	"net/http"
+	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
 
+	"github.com/certimate-go/certimate/internal/dnsauth"
 	"github.com/certimate-go/certimate/internal/domain"
 	"github.com/certimate-go/certimate/internal/rest/resp"
+	dnsmodel "github.com/certimate-go/certimate/pkg/core/dnsmanagement"
 	cf "github.com/certimate-go/certimate/pkg/sdk3rd/cloudflare"
 )
 
-type dnsAccessReader interface {
-	GetById(context.Context, string) (*domain.Access, error)
+type DNSResolver func(context.Context, string, string, bool) (dnsmodel.Provider, error)
+type dnsHandler struct{ resolve DNSResolver }
+
+func BindDNS(admin, authenticated *router.RouterGroup[*core.RequestEvent], resolve DNSResolver) {
+	h := dnsHandler{resolve}
+	admin.GET("/dns/providers", func(e *core.RequestEvent) error { return resp.Ok(e, dnsmodel.SupportedProviders()) })
+	authenticated.GET("/dns/capabilities/{provider}", func(e *core.RequestEvent) error {
+		caps, ok := dnsmodel.ProviderCapabilities(e.Request.PathValue("provider"))
+		if !ok {
+			return resp.Err(e, domain.ErrRecordNotFound)
+		}
+		return resp.Ok(e, caps)
+	})
+	admin.GET("/dns/{provider}/{access}/zones", h.zones)
+	dns := authenticated.Group("/dns/{provider}/{access}/zones/{zone}")
+	dns.GET("/records", h.records)
+	dns.GET("/export", h.export)
+	dns.POST("/records", h.create)
+	dns.PATCH("/records/{record}", h.patch)
+	dns.DELETE("/records/{record}", h.remove)
 }
 
-type dnsHandler struct{ accesses dnsAccessReader }
-
-func BindDNS(group *router.RouterGroup[*core.RequestEvent], accesses dnsAccessReader) {
-	h := dnsHandler{accesses: accesses}
-	dns := group.Group("/dns/cloudflare/{access}")
-	dns.GET("/zones", h.zones)
-	records := "/zones/{zone}/records"
-	dns.GET(records, h.records)
-	dns.GET("/zones/{zone}/export", h.export)
-	dns.POST(records, h.create)
-	dns.PATCH(records+"/{record}", h.patch)
-	dns.DELETE(records+"/{record}", h.remove)
-}
-
-func (h dnsHandler) client(e *core.RequestEvent, zones bool) (*cf.Client, error) {
-	a, err := h.accesses.GetById(e.Request.Context(), e.Request.PathValue("access"))
-	if domain.IsRecordNotFoundError(err) {
-		return nil, err
+func (h dnsHandler) client(e *core.RequestEvent, zones bool) (dnsmodel.Provider, error) {
+	provider, account := e.Request.PathValue("provider"), e.Request.PathValue("access")
+	if !e.HasSuperuserAuth() {
+		if zones {
+			return nil, domain.NewError(403, "administrator required")
+		}
+		if err := dnsauth.RequireZone(e, provider, account, e.Request.PathValue("zone"), e.Request.Method != http.MethodGet); err != nil {
+			return nil, err
+		}
 	}
-	if err != nil {
-		return nil, errors.New("could not read DNS account")
-	}
-	if a.Provider != "cloudflare" {
-		return nil, domain.ErrInvalidParams
-	}
-	token, _ := a.Config["apiToken"].(string)
-	if zoneToken, _ := a.Config["apiTokenForZone"].(string); zones && zoneToken != "" {
-		token = zoneToken
-	}
-	client, err := cf.NewClient(cf.WithApiToken(token))
-	if err != nil {
-		return nil, domain.NewError(400, "missing Cloudflare token")
-	}
-	return client.SetTimeout(25 * time.Second), nil
+	return h.resolve(e.Request.Context(), provider, account, zones)
 }
 
 func pageNumber(e *core.RequestEvent) (int, error) {
@@ -61,7 +59,7 @@ func pageNumber(e *core.RequestEvent) (int, error) {
 		return 1, nil
 	}
 	n, err := strconv.Atoi(s)
-	if err != nil || n < 1 {
+	if err != nil || n < 1 || n > 10000000 {
 		return 0, domain.ErrInvalidParams
 	}
 	return n, nil
@@ -100,7 +98,14 @@ func (h dnsHandler) records(e *core.RequestEvent) error {
 		return resp.Err(e, err)
 	}
 	value, err := c.DNSRecords(e.Request.Context(), e.Request.PathValue("zone"), page, e.Request.URL.Query().Get("name"))
-	return dnsReply(e, value, err)
+	if err != nil || value == nil {
+		return dnsReply(e, value, err)
+	}
+	edit, _ := dnsmodel.RecordEditCapabilitiesForZone(e.Request.Context(), c, e.Request.PathValue("zone"))
+	return resp.Ok(e, struct {
+		*dnsmodel.DNSPage[dnsmodel.DNSRecord]
+		Edit dnsmodel.RecordEditCapabilities `json:"edit"`
+	}{value, edit})
 }
 
 func (h dnsHandler) export(e *core.RequestEvent) error {
@@ -108,12 +113,30 @@ func (h dnsHandler) export(e *core.RequestEvent) error {
 	if err != nil {
 		return resp.Err(e, err)
 	}
-	value, err := c.ExportDNSZone(e.Request.Context(), e.Request.PathValue("zone"))
+	exporter, ok := c.(interface {
+		ExportDNSZone(context.Context, string) (string, error)
+	})
+	if !ok {
+		return resp.Err(e, domain.NewError(400, "BIND export is unavailable for this provider"))
+	}
+	value, err := exporter.ExportDNSZone(e.Request.Context(), e.Request.PathValue("zone"))
 	return dnsReply(e, value, err)
 }
 
-func validTTL(ttl int) bool { return ttl == 1 || (ttl >= 30 && ttl <= 86400) }
-
+func validTTL(provider string, ttl int) bool {
+	caps, ok := dnsmodel.ProviderCapabilities(provider)
+	return ok && caps.AllowsTTL(ttl)
+}
+func validCreate(provider string, in dnsmodel.RecordInput) bool {
+	caps, ok := dnsmodel.ProviderCapabilities(provider)
+	if !ok || !caps.AllowsType(in.Type) || !caps.AllowsTTL(in.TTL) || strings.TrimSpace(in.Name) == "" || in.Content == "" {
+		return false
+	}
+	if in.Line != "" && !caps.Line || in.Description != "" && !caps.Description || in.Weight != nil && (!caps.Weight || *in.Weight < 0) {
+		return false
+	}
+	return in.Priority == nil || slices.Contains(caps.PriorityTypes, in.Type) && *in.Priority >= 0 && *in.Priority <= 65535
+}
 func finishDNSWrite(e *core.RequestEvent, id string, err error) error {
 	e.App.Logger().Info("DNS record operation", "method", e.Request.Method, "actor", e.Auth.Id, "access", e.Request.PathValue("access"), "zone", e.Request.PathValue("zone"), "record", id, "success", err == nil)
 	return dnsReply(e, id, err)
@@ -121,12 +144,7 @@ func finishDNSWrite(e *core.RequestEvent, id string, err error) error {
 
 func (h dnsHandler) create(e *core.RequestEvent) error {
 	var input cf.RecordInput
-	if err := e.BindBody(&input); err != nil || strings.TrimSpace(input.Name) == "" || input.Content == "" || !validTTL(input.TTL) {
-		return resp.Err(e, domain.ErrInvalidParams)
-	}
-	switch input.Type {
-	case "A", "AAAA", "CNAME", "TXT":
-	default:
+	if err := e.BindBody(&input); err != nil || !validCreate(e.Request.PathValue("provider"), input) {
 		return resp.Err(e, domain.ErrInvalidParams)
 	}
 	c, err := h.client(e, false)
@@ -138,8 +156,8 @@ func (h dnsHandler) create(e *core.RequestEvent) error {
 }
 
 func (h dnsHandler) patch(e *core.RequestEvent) error {
-	var input cf.RecordPatch
-	if err := e.BindBody(&input); err != nil || input.Content == "" || !validTTL(input.TTL) {
+	var input recordUpdate
+	if err := e.BindBody(&input); err != nil || input.Content == "" || !validTTL(e.Request.PathValue("provider"), input.TTL) {
 		return resp.Err(e, domain.ErrInvalidParams)
 	}
 	c, err := h.client(e, false)
@@ -147,7 +165,11 @@ func (h dnsHandler) patch(e *core.RequestEvent) error {
 		return resp.Err(e, err)
 	}
 	id := e.Request.PathValue("record")
-	_, err = c.PatchDNSRecord(e.Request.Context(), e.Request.PathValue("zone"), id, input)
+	if input.Expected != nil || input.Name != nil || input.Type != nil || input.Priority != nil {
+		id, err = replaceRecord(e, c, id, input)
+	} else {
+		id, err = c.PatchDNSRecord(e.Request.Context(), e.Request.PathValue("zone"), id, input.RecordPatch)
+	}
 	return finishDNSWrite(e, id, err)
 }
 

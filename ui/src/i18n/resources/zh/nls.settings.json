@@ -53,15 +53,38 @@
     }
   },
 
+  "dns_proxy": {
+    "tab": "DNS 代理",
+    "enabled": "启用实例 DNS 代理",
+    "enabled_help": "选择「强制使用实例 DNS 代理」的账号将通过此服务器连接。禁用后，这些账号的 DNS 请求会失败。",
+    "server": "代理服务器",
+    "server_help": "填写带端口的 HTTP、HTTPS、SOCKS4、SOCKS5 或 SOCKS5H 地址。更换代理服务器后，如需认证，请填写新服务器的凭据。",
+    "invalid_server": "请填写包含端口的代理地址，并将认证信息填在下方。",
+    "username": "代理用户名",
+    "password": "代理密码",
+    "username_required": "使用密码认证时，请填写代理用户名。",
+    "socks4_help": "SOCKS4 支持使用用户名认证。",
+    "keep_saved": "留空保留已保存的值",
+    "clear_auth": "清除已保存的用户名和密码",
+    "test": "测试已保存的代理",
+    "remove": "移除代理",
+    "remove_confirm": "移除代理服务器及其凭据？",
+    "test_success": "代理连接成功，耗时 {{latency}} 毫秒。",
+    "test_failed": "连接测试失败，请检查代理地址、端口和凭据。",
+    "load_error": "读取 DNS 代理设置失败。",
+    "save_error": "保存 DNS 代理设置失败。"
+  },
+
   "appearance": {
     "tab": "外观",
     "theme": {
-      "title": "主题",
-      "form": {
-        "value": {
-          "extra": "重新加载页面生效。"
-        }
-      }
+      "title": "浏览器主题"
+    },
+    "site_theme": {
+      "title": "站点默认主题",
+      "tips": "首次访问的浏览器和选择使用站点默认主题的浏览器将采用此设置。",
+      "load_error": "无法读取站点默认主题。",
+      "save_error": "无法保存站点默认主题。"
     },
     "language": {
       "title": "语言",
@@ -190,18 +213,16 @@
     },
     "socials": {
       "document": "文档",
-      "github": "GitHub",
-      "telegram": "Telegram",
-      "donate": "捐赠"
+      "github": "GitHub"
     },
     "feedback": {
-      "title": "帮助我们改进 Certimate",
-      "subtitle": "告诉我们如何让 Certimate 为你更好地服务。",
+      "title": "帮助我们改进 Certimate DNS",
+      "subtitle": "报告问题或提出改进建议。",
       "button": "意见反馈"
     },
     "contributors": {
-      "title": "贡献者",
-      "tips": "感谢所有贡献者对本项目做出的贡献。"
+      "title": "上游 Certimate 贡献者",
+      "tips": "感谢为 Certimate 做出贡献的每一位开发者。"
     }
   }
 }

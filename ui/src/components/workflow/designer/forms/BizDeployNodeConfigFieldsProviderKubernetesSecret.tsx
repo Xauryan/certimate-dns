@@ -105,6 +105,15 @@ const BizDeployNodeConfigFieldsProviderKubernetesSecret = () => {
       </Form.Item>
 
       <Form.Item
+        name={[parentNamePath, "ingresses"]}
+        label={t("workflow_node.deploy.form.k8s_ingresses.label")}
+        extra={t("workflow_node.deploy.form.k8s_ingresses.help")}
+        rules={[formRule]}
+      >
+        <Input.TextArea allowClear autoSize={{ minRows: 1, maxRows: 5 }} placeholder={t("workflow_node.deploy.form.k8s_ingresses.placeholder")} />
+      </Form.Item>
+
+      <Form.Item
         name={[parentNamePath, "secretAnnotations"]}
         initialValue={initialValues.secretAnnotations}
         label={t("workflow_node.deploy.form.k8s_secret_annotations.label")}
@@ -163,6 +172,13 @@ const getSchema = ({ i18n = getI18n() }: { i18n?: ReturnType<typeof getI18n> }) 
     secretDataKeyForKey: z.string().nonempty(),
     secretDataKeyForCrtOnlyServer: z.string().nullish(),
     secretDataKeyForCrtOnlyIntermedia: z.string().nullish(),
+    ingresses: z
+      .string()
+      .nullish()
+      .refine((value) => {
+        const names = value?.split(/[\s,]+/).filter(Boolean) ?? [];
+        return names.every((name) => name.length <= 253 && /^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*$/.test(name));
+      }, t("workflow_node.deploy.form.k8s_ingresses.invalid")),
     secretAnnotations: z
       .string()
       .nullish()

@@ -53,15 +53,38 @@
     }
   },
 
+  "dns_proxy": {
+    "tab": "DNS proxy",
+    "enabled": "Enable instance DNS proxy",
+    "enabled_help": "Accounts set to require the instance DNS proxy use this server. Disabling it pauses DNS requests from those accounts.",
+    "server": "Proxy server",
+    "server_help": "Enter an HTTP, HTTPS, SOCKS4, SOCKS5 or SOCKS5H URL including its port. To use authentication with a new server, enter its credentials below.",
+    "invalid_server": "Enter a proxy URL with its explicit port and no embedded credentials.",
+    "username": "Proxy username",
+    "password": "Proxy password",
+    "username_required": "Enter a username for this password.",
+    "socks4_help": "SOCKS4 supports username authentication.",
+    "keep_saved": "Leave blank to keep the saved value",
+    "clear_auth": "Clear saved username and password",
+    "test": "Test saved proxy",
+    "remove": "Remove proxy",
+    "remove_confirm": "Remove the proxy server and its credentials?",
+    "test_success": "Proxy responded in {{latency}} ms.",
+    "test_failed": "Connection test failed. Check the proxy address, port and credentials.",
+    "load_error": "Could not load DNS proxy settings.",
+    "save_error": "Could not save DNS proxy settings."
+  },
+
   "appearance": {
     "tab": "Appearance",
     "theme": {
-      "title": "Theme",
-      "form": {
-        "value": {
-          "extra": "Reload the page for the change to take effect."
-        }
-      }
+      "title": "Browser theme"
+    },
+    "site_theme": {
+      "title": "Default site theme",
+      "tips": "Applies to first visits and browsers set to use the site default.",
+      "load_error": "Could not load the default site theme.",
+      "save_error": "Could not save the default site theme."
     },
     "language": {
       "title": "Language",
@@ -190,18 +213,16 @@
     },
     "socials": {
       "document": "Documentation",
-      "github": "GitHub",
-      "telegram": "Telegram",
-      "donate": "Donate"
+      "github": "GitHub"
     },
     "feedback": {
-      "title": "Help us improve Certimate",
-      "subtitle": "Tell us how to make Certimate work better for you.",
+      "title": "Help us improve Certimate DNS",
+      "subtitle": "Report an issue or suggest an improvement.",
       "button": "Give feedback"
     },
     "contributors": {
-      "title": "Contributors",
-      "tips": "Thanks to all the people who have contributed to this project."
+      "title": "Upstream Certimate contributors",
+      "tips": "Thanks to everyone who contributed to Certimate."
     }
   }
 }

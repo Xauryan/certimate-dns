@@ -9,6 +9,7 @@ const pbco = pb.collection(COLLECTION_NAME_CERTIFICATE);
 const _commonFields = [
   "id",
   "source",
+  "ca",
   "serialNumber",
   "subjectName",
   "subjectAltNames",
@@ -60,6 +61,19 @@ export const list = async ({
     fields: [..._commonFields, ..._expandFields].join(","),
     filter: filters.join(" && "),
     sort: sort || "-created",
+    requestKey: null,
+  });
+};
+
+export const listDeployable = async (keyword: string, page: number) => {
+  const filters = ["deleted=null", "isRevoked=false", "validityNotBefore<=@now", "validityNotAfter>@now"];
+  if (keyword) {
+    filters.push(pb.filter("(id={:keyword} || serialNumber={:keyword} || subjectAltNames~{:keyword})", { keyword }));
+  }
+  return pbco.getList<Pick<CertificateModel, "id" | "subjectAltNames" | "validityNotAfter">>(page, 20, {
+    fields: "id,subjectAltNames,validityNotAfter",
+    filter: filters.join(" && "),
+    sort: "-created,id",
     requestKey: null,
   });
 };

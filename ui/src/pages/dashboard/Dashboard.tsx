@@ -26,13 +26,13 @@ import { get as getStatistics } from "@/api/statistics";
 import Empty from "@/components/Empty";
 import WorkflowRunDetailDrawer from "@/components/workflow/WorkflowRunDetailDrawer";
 import WorkflowStatus from "@/components/workflow/WorkflowStatus";
-import { APP_DOWNLOAD_URL } from "@/domain/app";
 import { type Statistics } from "@/domain/statistics";
 import { type WorkflowRunModel } from "@/domain/workflowRun";
 import { useBrowserTheme, useVersionChecker } from "@/hooks";
 import { get as getWorkflowRun, list as listWorkflowRuns } from "@/repository/workflowRun";
 import { mergeCls } from "@/utils/css";
 import { unwrapErrMsg } from "@/utils/error";
+import DNSOverview from "./DNSOverview";
 
 const Dashboard = () => {
   const { t } = useTranslation();
@@ -46,6 +46,10 @@ const Dashboard = () => {
       <div className="container">
         <div className="my-1.5">
           <StatisticCards />
+        </div>
+
+        <div className="mt-8">
+          <DNSOverview />
         </div>
 
         <div className="mt-8">
@@ -221,7 +225,7 @@ const Shortcuts = ({ className, style }: { className?: string; style?: React.CSS
 
   const { t } = useTranslation();
 
-  const { hasUpdate } = useVersionChecker();
+  const updateUrl = useVersionChecker();
 
   return (
     <div className={className} style={style}>
@@ -253,13 +257,15 @@ const Shortcuts = ({ className, style }: { className?: string; style?: React.CSS
         >
           <span className="text-sm">{t("dashboard.shortcut.configure_ca")}</span>
         </Button>
-        {hasUpdate && (
+        {updateUrl && (
           <Button
             className="shadow-sm"
             icon={<IconConfetti className="animate-bounce" color="var(--color-error)" size="1.25em" />}
             shape="round"
             size="large"
-            onClick={() => window.open(APP_DOWNLOAD_URL, "_blank")}
+            href={updateUrl}
+            target="_blank"
+            rel="noopener noreferrer"
           >
             <span className="text-sm">{t("dashboard.shortcut.upgrade")}</span>
           </Button>

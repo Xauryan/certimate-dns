@@ -23,6 +23,8 @@ const BizDeployNodeConfigFieldsProviderAliyunWAF = () => {
   const formInst = Form.useFormInstance();
   const initialValues = getInitialValues();
 
+  const legacy = Form.useWatch([parentNamePath, "serviceVersion"], formInst) === "2.0";
+  const zh = i18n.language.startsWith("zh");
   const fieldServiceType = Form.useWatch([parentNamePath, "serviceType"], formInst);
 
   return (
@@ -34,7 +36,11 @@ const BizDeployNodeConfigFieldsProviderAliyunWAF = () => {
         rules={[formRule]}
         tooltip={<span dangerouslySetInnerHTML={{ __html: t("workflow_node.deploy.form.aliyun_waf_region.tooltip") }}></span>}
       >
-        <Input placeholder={t("workflow_node.deploy.form.aliyun_waf_region.placeholder")} />
+        {legacy ? (
+          <Select options={["cn-hangzhou", "ap-southeast-1"].map((value) => ({ value, label: value }))} />
+        ) : (
+          <Input placeholder={t("workflow_node.deploy.form.aliyun_waf_region.placeholder")} />
+        )}
       </Form.Item>
 
       <Form.Item
@@ -43,35 +49,46 @@ const BizDeployNodeConfigFieldsProviderAliyunWAF = () => {
         label={t("workflow_node.deploy.form.aliyun_waf_service_version.label")}
         rules={[formRule]}
       >
-        <Select options={["3.0"].map((s) => ({ label: s, value: s }))} placeholder={t("workflow_node.deploy.form.aliyun_waf_service_version.placeholder")} />
-      </Form.Item>
-
-      <Form.Item
-        name={[parentNamePath, "serviceType"]}
-        initialValue={initialValues.serviceType}
-        label={t("workflow_node.deploy.form.aliyun_waf_service_type.label")}
-        rules={[formRule]}
-      >
         <Select
-          options={[SERVICE_TYPE_CLOUDRESOURCE, SERVICE_TYPE_CNAME].map((s) => ({
-            label: t(`workflow_node.deploy.form.aliyun_waf_service_type.option.${s}.label`),
-            value: s,
-          }))}
-          placeholder={t("workflow_node.deploy.form.aliyun_waf_service_type.placeholder")}
+          options={[
+            { value: "3.0", label: "3.0" },
+            { value: "2.0", label: zh ? "2.0（存量实例）" : "2.0 (existing instances)" },
+          ]}
+          placeholder={t("workflow_node.deploy.form.aliyun_waf_service_version.placeholder")}
         />
       </Form.Item>
+
+      {!legacy && (
+        <Form.Item
+          name={[parentNamePath, "serviceType"]}
+          initialValue={initialValues.serviceType}
+          label={t("workflow_node.deploy.form.aliyun_waf_service_type.label")}
+          rules={[formRule]}
+        >
+          <Select
+            options={[SERVICE_TYPE_CLOUDRESOURCE, SERVICE_TYPE_CNAME].map((s) => ({
+              label: t(`workflow_node.deploy.form.aliyun_waf_service_type.option.${s}.label`),
+              value: s,
+            }))}
+            placeholder={t("workflow_node.deploy.form.aliyun_waf_service_type.placeholder")}
+          />
+        </Form.Item>
+      )}
 
       <Form.Item
         name={[parentNamePath, "instanceId"]}
         initialValue={initialValues.instanceId}
         label={t("workflow_node.deploy.form.aliyun_waf_instance_id.label")}
         rules={[formRule]}
+        extra={
+          legacy && (zh ? "留空时使用所选地域和资源组的 WAF 2.0 实例。" : "Leave blank to use the WAF 2.0 instance in the selected region and resource group.")
+        }
         tooltip={<span dangerouslySetInnerHTML={{ __html: t("workflow_node.deploy.form.aliyun_waf_instance_id.tooltip") }}></span>}
       >
         <Input placeholder={t("workflow_node.deploy.form.aliyun_waf_instance_id.placeholder")} />
       </Form.Item>
 
-      <Show when={fieldServiceType === SERVICE_TYPE_CLOUDRESOURCE}>
+      <Show when={!legacy && fieldServiceType === SERVICE_TYPE_CLOUDRESOURCE}>
         <Form.Item
           name={[parentNamePath, "resourceProduct"]}
           initialValue={initialValues.resourceProduct}
@@ -109,11 +126,17 @@ const BizDeployNodeConfigFieldsProviderAliyunWAF = () => {
       <Form.Item
         name={[parentNamePath, "domain"]}
         initialValue={initialValues.domain}
-        label={t("workflow_node.deploy.form.aliyun_waf_domain.label")}
-        extra={t("workflow_node.deploy.form.aliyun_waf_domain.help")}
+        label={legacy ? (zh ? "WAF 防护域名" : "Protected WAF domains") : t("workflow_node.deploy.form.aliyun_waf_domain.label")}
+        extra={
+          legacy
+            ? zh
+              ? "每行一个域名，也可使用逗号分隔。"
+              : "Enter one domain per line or separate domains with commas."
+            : t("workflow_node.deploy.form.aliyun_waf_domain.help")
+        }
         rules={[formRule]}
       >
-        <Input allowClear placeholder={t("workflow_node.deploy.form.aliyun_waf_domain.placeholder")} />
+        {legacy ? <Input.TextArea rows={3} /> : <Input allowClear placeholder={t("workflow_node.deploy.form.aliyun_waf_domain.placeholder")} />}
       </Form.Item>
     </>
   );
@@ -136,21 +159,37 @@ const getSchema = ({ i18n = getI18n() }: { i18n?: ReturnType<typeof getI18n> }) 
   return z
     .object({
       region: z.string().nonempty(),
-      serviceVersion: z.enum(["3.0"]),
-      serviceType: z.enum([SERVICE_TYPE_CLOUDRESOURCE, SERVICE_TYPE_CNAME]),
-      instanceId: z.string().nonempty(),
+      serviceVersion: z.enum(["3.0", "2.0"]),
+      serviceType: z.enum([SERVICE_TYPE_CLOUDRESOURCE, SERVICE_TYPE_CNAME]).nullish(),
+      instanceId: z.string().nullish(),
       resourceProduct: z.string().nullish(),
       resourceId: z.string().nullish(),
       resourcePort: z.union([z.string(), z.int().positive()]).nullish(),
-      domain: z
-        .string()
-        .nullish()
-        .refine((v) => {
-          if (!v) return true;
-          return isDomain(v, { allowWildcard: true });
-        }, t("common.errmsg.domain_invalid")),
+      domain: z.string().nullish(),
     })
     .superRefine((values, ctx) => {
+      if (values.serviceVersion === "2.0") {
+        if (!["cn-hangzhou", "ap-southeast-1"].includes(values.region)) {
+          ctx.addIssue({ code: "custom", message: "cn-hangzhou / ap-southeast-1", path: ["region"] });
+        }
+        const domains = (values.domain ?? "")
+          .split(/[,\n]/)
+          .map((host) => host.trim())
+          .filter(Boolean);
+        if (!domains.length || domains.some((host) => !isDomain(host, { allowWildcard: true }))) {
+          ctx.addIssue({ code: "custom", message: t("common.errmsg.domain_invalid"), path: ["domain"] });
+        }
+        return;
+      }
+
+      if (!values.instanceId)
+        ctx.addIssue({ code: "custom", message: t("workflow_node.deploy.form.aliyun_waf_instance_id.placeholder"), path: ["instanceId"] });
+      if (!values.serviceType)
+        ctx.addIssue({ code: "custom", message: t("workflow_node.deploy.form.aliyun_waf_service_type.placeholder"), path: ["serviceType"] });
+      if (values.domain && !isDomain(values.domain, { allowWildcard: true })) {
+        ctx.addIssue({ code: "custom", message: t("common.errmsg.domain_invalid"), path: ["domain"] });
+      }
+
       switch (values.serviceType) {
         case SERVICE_TYPE_CLOUDRESOURCE:
           {
@@ -189,9 +228,9 @@ const getSchema = ({ i18n = getI18n() }: { i18n?: ReturnType<typeof getI18n> }) 
     });
 };
 
-const _default = Object.assign(BizDeployNodeConfigFieldsProviderAliyunWAF, {
+const AliyunWAFFields = Object.assign(BizDeployNodeConfigFieldsProviderAliyunWAF, {
   getInitialValues,
   getSchema,
 });
 
-export default _default;
+export default AliyunWAFFields;

@@ -1,6 +1,6 @@
 # Certimate DNS 开发基线
 
-本分支从 Certimate v0.4.38 建立。本分支已实现 Cloudflare DNS 管理。三家适配器的完整验收条件见下文。
+本分支基于 Certimate v0.4.38。管理台复用原有授权凭据和证书工作流，并增加 DNS 域名目录、成员授权、解析自动化、商业证书和接口密钥。下文保留项目最初的路线图和验收条件。逐项实现、协议差异及待验能力见[彩虹 DNS 功能对照](dnsmgr-parity.zh-CN.md)。
 
 ## 复现基线
 
@@ -9,14 +9,28 @@
 ```sh
 git clone --recurse-submodules https://github.com/Xauryan/certimate-dns.git
 cd certimate-dns
-npm --prefix ui ci
+npm --prefix ui ci --replace-registry-host=registry.npmmirror.com
 npm --prefix ui run build
 mkdir -p dist
 CGO_ENABLED=0 go build -mod=readonly -trimpath -o dist/certimate .
 ./dist/certimate serve --dir ./pb_data --http 127.0.0.1:8090
 ```
 
-浏览器打开 http://127.0.0.1:8090/ 。健康检查在 /api/health。CI 在 GitHub 托管的标准 ubuntu-26.04 x64 机器上构建相同的前端和 Go 可执行文件，再用临时空库检查首页和健康接口。CI 的权限为读取仓库内容，测试使用本地数据。
+浏览器打开 http://127.0.0.1:8090/ 。健康检查在 /api/health。CI 在 GitHub 托管的标准 ubuntu-26.04 x64 机器上构建相同的前端和 Go 可执行文件。进程测试打开临时空库，并从 v0.4.38 的数据库升级后检查会话、工作流、跨域权限、批量变更及重启恢复。CI 的权限为读取仓库内容，测试使用本地数据。
+
+前端锁文件中的 tarball URL 采用 `registry.npmmirror.com`。上述命令和源码 Dockerfile 使用 npm 当前配置的 registry 下载这些包，并按锁文件校验完整性。
+
+## 安装、升级与回退
+
+**首次安装。** 从 [Certimate DNS Releases](https://github.com/Xauryan/certimate-dns/releases) 选择对应系统和架构的发行包，核对发行附带的校验值。发行页没有可用构建时，按上文从 Certimate DNS 源码构建。用稳定的数据目录启动，例如 `./certimate serve --dir ./pb_data --http 127.0.0.1:8090`。首次启动前通过服务环境设置 `CERTIMATE_ADMIN_USERNAME` 和 `CERTIMATE_ADMIN_PASSWORD`，空库迁移会用它们初始化管理员。服务启动后访问 `/api/health`，再登录管理台。容器安装从仓库根目录执行 `docker compose -f docker/docker-compose.yml up -d --build`，样例从当前源码构建，数据保存在 `docker/data/`。
+
+**升级现有 Certimate 或 Certimate DNS。** 目前进程测试覆盖的是从 Certimate v0.4.38 原库升级。取得目标 Certimate DNS 版本的二进制或构建容器镜像。停止旧实例，保留旧程序或镜像并完整备份现有 `--dir` 目录，包括隐藏文件和存储目录。使用 PocketBase `--encryptionEnv` 时，保留原环境里的加密密钥。启动新版本时沿用原数据目录、加密配置和监听配置，PocketBase 在启动时执行迁移。检查 `/api/health` 和启动日志，并确认原账号、授权、证书工作流和已有 DNS 配置可以打开。容器升级沿用原数据卷或绑定目录。
+
+**回退。** 停止升级后的实例，用升级前的完整备份恢复数据目录，再启动相应的旧程序或镜像。迁移彩虹 DNS 的 MySQL 数据时，按[迁移指南](dnsmgr-migration.zh-CN.md)另行导入。
+
+管理台只检查 Certimate DNS 仓库发布的稳定版，提示指向对应的发行包页面。准备发布时，将 `internal/app/app.go` 中的 `AppVersion` 与 `vX.Y.Z` 发行标签对应，保证构建内嵌版本与发行版一致。站点后台任务随主进程运行，设置中的「诊断」提供日志及 Certimate 工作流调度统计。
+
+在「设置 → 外观」中，管理员可设置站点默认主题。选择「使用站点默认主题」的浏览器和首次访问的浏览器使用该主题。管理员和成员可以在各自的登录页面或管理界面切换浏览器主题。旧版本已保存在浏览器中的主题选择继续有效。
 
 ## 使用 Cloudflare DNS 管理
 

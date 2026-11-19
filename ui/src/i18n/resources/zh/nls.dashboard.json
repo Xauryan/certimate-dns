@@ -13,6 +13,34 @@
     "enabled_workflows": "已启用工作流"
   },
 
+  "dns_overview": {
+    "heading": "DNS 运维概览",
+    "domains_other": "{{count}} 个 DNS 域名",
+    "failover": "容灾切换监控",
+    "optimization": "CDN 优选 IP",
+    "orders": "商业 CA 证书订单",
+    "deployments": "证书部署任务",
+    "active": "已启用",
+    "primary": "使用主站",
+    "backup": "使用备站",
+    "scheduled": "定时变更",
+    "scheduler": "调度器",
+    "running": "运行中",
+    "stale": "心跳超时",
+    "heartbeat": "上次调度检查",
+    "no_heartbeat": "暂无心跳",
+    "last_result": "最近任务结果",
+    "no_result": "暂无执行结果",
+    "succeeded": "成功",
+    "failed": "失败",
+    "issue_failed": "签发失败或已取消",
+    "issued": "已签发",
+    "expiring": "7 天内到期",
+    "expired": "已过期",
+    "pending": "待处理",
+    "load_error": "无法加载 DNS 运维概览。"
+  },
+
   "shortcut": {
     "": "快捷操作",
     "create_workflow": "创建新的工作流",

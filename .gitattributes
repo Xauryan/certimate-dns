@@ -1,2 +1,3 @@
 ﻿* text=auto eol=crlf
 *.go text eol=lf
+pkg/core/deployer/providers/dnsmgr-extra/fnos_update.py text eol=lf

@@ -24,3 +24,8 @@ func (r *sdkResponseBase) GetMessage() *string {
 }
 
 var _ sdkResponse = (*sdkResponseBase)(nil)
+
+// Confirmed recognizes the bool and numeric status formats used by the Windows panel.
+func (r *sdkResponseBase) Confirmed() bool {
+	return string(r.Status) == "true" || string(r.Status) == "0"
+}

@@ -8,12 +8,14 @@ import { z } from "zod";
 
 import Show from "@/components/Show";
 import Tips from "@/components/Tips";
+import AccessConfigFieldsProviderGoogleTrustServices from "@/components/access/forms/AccessConfigFieldsProviderGoogleTrustServices";
 import { type CAProviderType, CA_PROVIDERS, caProvidersMap } from "@/domain/provider";
 import { type SSLProviderSettingsContent } from "@/domain/settings";
 import { useAntdForm, useZustandShallowSelector } from "@/hooks";
 import { useSSLProviderSettingsStore } from "@/stores/settings";
 import { mergeCls } from "@/utils/css";
 import { unwrapErrMsg } from "@/utils/error";
+import { trimFormValues } from "@/utils/form";
 
 const SettingsSSLProvider = () => {
   const { t } = useTranslation();
@@ -246,7 +248,7 @@ const InternalCASharedForm = ({ children, provider }: { children?: React.ReactNo
         const newSettings = produce(settings, (draft) => {
           draft.provider = provider;
           draft.configs ??= {} as SSLProviderSettingsContent["configs"];
-          draft.configs[provider] = values;
+          draft.configs[provider] = provider === CA_PROVIDERS.GOOGLETRUSTSERVICES ? trimFormValues(formInst.getFieldsValue()) : values;
         });
         await updateSettings(newSettings);
       } finally {
@@ -371,7 +373,7 @@ const InternalCASettingsFormProviderGlobalSignAtlas = () => {
 const InternalCASettingsFormProviderGoogleTrustServices = () => {
   return (
     <InternalCASharedForm provider={CA_PROVIDERS.GOOGLETRUSTSERVICES}>
-      <InternalCASharedFormEabFields provider={CA_PROVIDERS.GOOGLETRUSTSERVICES} />
+      <AccessConfigFieldsProviderGoogleTrustServices />
     </InternalCASharedForm>
   );
 };

@@ -2,8 +2,10 @@ package tencentcloudssldeploy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/samber/lo"
@@ -40,10 +42,12 @@ type DeployerConfig struct {
 }
 
 type Deployer struct {
-	config     *DeployerConfig
-	logger     *slog.Logger
-	sdkClient  *tcssl.Client
-	sdkCertmgr core.Certmgr
+	config        *DeployerConfig
+	logger        *slog.Logger
+	sdkClient     *tcssl.Client
+	sdkCertmgr    core.Certmgr
+	pollInterval  time.Duration
+	confirmTarget func(*tcssl.DescribeHostDeployRecordDetailResponse, string) bool
 }
 
 var _ Provider = (*Deployer)(nil)
@@ -69,10 +73,11 @@ func NewDeployer(config *DeployerConfig) (*Deployer, error) {
 	}
 
 	return &Deployer{
-		config:     config,
-		logger:     slog.Default(),
-		sdkClient:  client,
-		sdkCertmgr: pcertmgr,
+		config:       config,
+		logger:       slog.Default(),
+		sdkClient:    client,
+		sdkCertmgr:   pcertmgr,
+		pollInterval: 10 * time.Second,
 	}, nil
 }
 
@@ -94,66 +99,69 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 		return nil, fmt.Errorf("config `resourceIds` is required")
 	}
 
-	// 上传证书
-	upres, err := d.sdkCertmgr.Upload(ctx, certPEM, privkeyPEM)
-	if err != nil {
-		return nil, fmt.Errorf("failed to upload certificate file: %w", err)
-	} else {
-		d.logger.Info("ssl certificate uploaded", slog.Any("result", upres))
-	}
-
-	// 证书部署到云资源实例列表
-	// REF: https://cloud.tencent.com/document/api/400/91667
-	deployCertificateInstanceReq := tcssl.NewDeployCertificateInstanceRequest()
-	deployCertificateInstanceReq.CertificateId = common.StringPtr(upres.CertId)
-	deployCertificateInstanceReq.ResourceType = common.StringPtr(d.config.ResourceProduct)
-	deployCertificateInstanceReq.InstanceIdList = common.StringPtrs(d.config.ResourceIds)
-	deployCertificateInstanceReq.Status = common.Int64Ptr(1)
-	deployCertificateInstanceResp, err := d.sdkClient.DeployCertificateInstanceWithContext(ctx, deployCertificateInstanceReq)
-	d.logger.Debug("sdk request 'ssl.DeployCertificateInstance'", slog.Any("request", deployCertificateInstanceReq), slog.Any("response", deployCertificateInstanceResp))
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute sdk request 'ssl.DeployCertificateInstance': %w", err)
-	} else if deployCertificateInstanceResp.Response == nil || deployCertificateInstanceResp.Response.DeployRecordId == nil {
-		return nil, fmt.Errorf("failed to create deploy record")
-	}
-
-	// 获取部署任务详情，等待任务状态变更
-	// REF: https://cloud.tencent.com/document/api/400/91658
-	if _, err := xwait.UntilWithContext(ctx, func(_ context.Context, _ int) (bool, error) {
-		describeHostDeployRecordDetailReq := tcssl.NewDescribeHostDeployRecordDetailRequest()
-		describeHostDeployRecordDetailReq.DeployRecordId = common.StringPtr(fmt.Sprintf("%d", *deployCertificateInstanceResp.Response.DeployRecordId))
-		describeHostDeployRecordDetailReq.Limit = common.Uint64Ptr(200)
-		describeHostDeployRecordDetailResp, err := d.sdkClient.DescribeHostDeployRecordDetailWithContext(ctx, describeHostDeployRecordDetailReq)
-		d.logger.Debug("sdk request 'ssl.DescribeHostDeployRecordDetail'", slog.Any("request", describeHostDeployRecordDetailReq), slog.Any("response", describeHostDeployRecordDetailResp))
-		if err != nil {
-			return false, fmt.Errorf("failed to execute sdk request 'ssl.DescribeHostDeployRecordDetail': %w", err)
-		}
-
-		var pendingCount, runningCount, succeededCount, failedCount, totalCount int64
-		if describeHostDeployRecordDetailResp.Response.TotalCount == nil {
-			return false, fmt.Errorf("unexpected deployment deployment job status")
-		} else {
-			pendingCount = lo.FromPtr(describeHostDeployRecordDetailResp.Response.PendingTotalCount)
-			runningCount = lo.FromPtr(describeHostDeployRecordDetailResp.Response.RunningTotalCount)
-			succeededCount = lo.FromPtr(describeHostDeployRecordDetailResp.Response.SuccessTotalCount)
-			failedCount = lo.FromPtr(describeHostDeployRecordDetailResp.Response.FailedTotalCount)
-			totalCount = lo.FromPtr(describeHostDeployRecordDetailResp.Response.TotalCount)
-
-			if succeededCount+failedCount == totalCount {
-				if failedCount > 0 {
-					return false, fmt.Errorf("unexpected deployment deployment job status (succeeded: %d, failed: %d, total: %d)", succeededCount, failedCount, totalCount)
-				}
-				return true, nil
-			}
-		}
-
-		d.logger.Info(fmt.Sprintf("waiting for deployment job completion (pending: %d, running: %d, succeeded: %d, failed: %d, total: %d) ...", pendingCount, runningCount, succeededCount, failedCount, totalCount))
-		return false, nil
-	}, 10*time.Second); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	uploaded, err := d.sdkCertmgr.Upload(ctx, certPEM, privkeyPEM)
+	if err != nil {
+		return nil, err
+	}
+	if uploaded == nil || uploaded.CertId == "" {
+		return nil, errors.New("Tencent Cloud did not confirm certificate upload")
+	}
 
-	return &DeployResult{}, nil
+	submit := tcssl.NewDeployCertificateInstanceRequest()
+	submit.CertificateId = common.StringPtr(uploaded.CertId)
+	submit.ResourceType = common.StringPtr(d.config.ResourceProduct)
+	submit.InstanceIdList = common.StringPtrs(d.config.ResourceIds)
+	// The SSL API only uses Status for Cloud Streaming Services.
+	if d.config.ResourceProduct == "live" {
+		submit.Status = common.Int64Ptr(1)
+	}
+	result, err := d.sdkClient.DeployCertificateInstanceWithContext(ctx, submit)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, errors.New("Tencent Cloud did not confirm deployment submission; check remote records before retrying")
+	}
+	if result == nil || result.Response == nil || result.Response.DeployRecordId == nil || *result.Response.DeployRecordId == 0 {
+		return nil, errors.New("Tencent Cloud returned no deployment record")
+	}
+	recordID := strconv.FormatUint(*result.Response.DeployRecordId, 10)
+	if result.Response.DeployStatus != nil && *result.Response.DeployStatus != 1 {
+		// DeployStatus=0 returns the ID of a previously submitted job.
+		return nil, fmt.Errorf("Tencent Cloud did not create the requested deployment; check existing record %s", recordID)
+	}
+	d.logger.Info("Tencent Cloud SSL deployment submitted", "recordId", recordID)
+	query := tcssl.NewDescribeHostDeployRecordDetailRequest()
+	query.DeployRecordId = common.StringPtr(recordID)
+	query.Limit = common.Uint64Ptr(200)
+	for {
+		detail, err := d.sdkClient.DescribeHostDeployRecordDetailWithContext(ctx, query)
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("waiting for deployment record %s: %w", recordID, ctx.Err())
+		}
+		if err != nil || detail == nil || detail.Response == nil || detail.Response.TotalCount == nil {
+			return nil, fmt.Errorf("could not read deployment record %s; check remote status before retrying", recordID)
+		}
+		status := detail.Response
+		total, succeeded, failed := *status.TotalCount, lo.FromPtr(status.SuccessTotalCount), lo.FromPtr(status.FailedTotalCount)
+		running, pending := lo.FromPtr(status.RunningTotalCount), lo.FromPtr(status.PendingTotalCount)
+		if failed > 0 {
+			return nil, fmt.Errorf("deployment record %s reports %d failed resources of %d", recordID, failed, total)
+		}
+		if total > 0 && succeeded == total && running == 0 && pending == 0 {
+			if d.confirmTarget != nil && !d.confirmTarget(detail, uploaded.CertId) {
+				return nil, fmt.Errorf("deployment record %s did not confirm the requested certificate and target", recordID)
+			}
+			return &DeployResult{ExtendedData: map[string]any{"deployRecordId": recordID}}, nil
+		}
+		d.logger.Debug("waiting for Tencent Cloud SSL deployment", "recordId", recordID, "pending", pending, "running", running, "succeeded", succeeded, "total", total)
+		if err := xwait.DelayWithContext(ctx, d.pollInterval); err != nil {
+			return nil, fmt.Errorf("waiting for deployment record %s: %w", recordID, err)
+		}
+	}
 }
 
 func createSDKClient(secretId, secretKey, endpoint, region string) (*tcssl.Client, error) {

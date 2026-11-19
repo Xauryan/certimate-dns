@@ -14,6 +14,9 @@ type PanelGetConfigResponse struct {
 		Panel string `json:"panel,omitempty"`
 		Soft  string `json:"soft,omitempty"`
 	} `json:"paths,omitempty"`
+	Config *struct {
+		WebServer string `json:"webserver,omitempty"`
+	} `json:"config,omitempty"`
 	Site *struct {
 		WebServer  string `json:"webserver,omitempty"`
 		SitesPath  string `json:"sites_path,omitempty"`

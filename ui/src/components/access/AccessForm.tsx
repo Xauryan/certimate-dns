@@ -1,10 +1,11 @@
 import { useTranslation } from "react-i18next";
-import { Form, type FormInstance, Input } from "antd";
+import { Form, type FormInstance, Input, Radio } from "antd";
 import { createSchemaFieldRule } from "antd-zod";
 import { z } from "zod";
 
 import AccessProviderSelect from "@/components/provider/AccessProviderSelect";
 import { type AccessModel } from "@/domain/access";
+import { dnsAccountProviderLabels } from "@/domain/dnsAccount";
 import { ACCESS_PROVIDERS, ACCESS_USAGES } from "@/domain/provider";
 import { useAntdForm } from "@/hooks";
 
@@ -13,7 +14,7 @@ import { useProviderFilterByUsage } from "./forms/_hooks";
 import AccessConfigFieldsProvider from "./forms/AccessConfigFieldsProvider";
 
 export type AccessFormModes = "create" | "modify";
-export type AccessFormUsages = "dns" | "hosting" | "dns-hosting" | "ca" | "notification";
+export type AccessFormUsages = "dns" | "dns-management" | "hosting" | "dns-hosting" | "ca" | "notification";
 
 export interface AccessFormProps {
   className?: string;
@@ -51,6 +52,12 @@ const AccessForm = ({ className, style, disabled, initialValues, mode, usage, on
       let props: object = { disabled: disabled };
 
       switch (provider) {
+        case ACCESS_PROVIDERS.CLOUDFLARE:
+          props = { ...props, dnsManagement: usage === "dns-management" || initialValues?.config?.authMethod === "globalapikey" };
+          break;
+        case ACCESS_PROVIDERS.GOEDGE:
+          props = { ...props, dnsManagement: usage === "dns-management" };
+          break;
         case ACCESS_PROVIDERS.WEBHOOK:
           {
             props = {
@@ -63,7 +70,7 @@ const AccessForm = ({ className, style, disabled, initialValues, mode, usage, on
 
       return props;
     },
-    deps: [disabled, usage],
+    deps: [disabled, usage, initialValues?.config?.authMethod],
   });
 
   return (
@@ -90,6 +97,7 @@ const AccessForm = ({ className, style, disabled, initialValues, mode, usage, on
         rules={[formRule]}
       >
         <AccessProviderSelect
+          providerLabels={usage === "dns-management" ? dnsAccountProviderLabels : undefined}
           disabled={mode !== "create"}
           placeholder={t("access.form.provider.placeholder")}
           showOptionTags={
@@ -103,6 +111,22 @@ const AccessForm = ({ className, style, disabled, initialValues, mode, usage, on
       <FormNestedFieldsContextProvider value={{ parentNamePath: "config" }}>
         {renderNestedFieldProviderComponent && <>{renderNestedFieldProviderComponent}</>}
       </FormNestedFieldsContextProvider>
+      {usage === "dns-management" && dnsAccountProviderLabels.has(fieldProvider) && (
+        <Form.Item
+          name={["config", "dnsManagementProxy"]}
+          label={t("access.form.dns_account.proxy")}
+          getValueProps={(value) => ({ value: value === true ? "proxy" : value === false ? "direct" : "inherit" })}
+          getValueFromEvent={(event) => (event.target.value === "inherit" ? undefined : event.target.value === "proxy")}
+        >
+          <Radio.Group
+            options={[
+              { value: "inherit", label: t("access.form.dns_account.proxy_inherit") },
+              { value: "direct", label: t("access.form.dns_account.proxy_direct") },
+              { value: "proxy", label: t("access.form.dns_account.proxy_required") },
+            ]}
+          />
+        </Form.Item>
+      )}
     </Form>
   );
 };

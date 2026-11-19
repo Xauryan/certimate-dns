@@ -9,10 +9,11 @@ import { matchSearchOption } from "@/utils/search";
 import { type SharedSelectProps } from "./_shared";
 
 export interface AccessProviderSelectProps extends SharedSelectProps<AccessProvider> {
+  providerLabels?: ReadonlyMap<string, string>;
   showOptionTags?: boolean | { [key in AccessUsageType | "builtin"]?: boolean };
 }
 
-const AccessProviderSelect = ({ showOptionTags, onFilter, ...props }: AccessProviderSelectProps = { showOptionTags: true }) => {
+const AccessProviderSelect = ({ providerLabels, showOptionTags, onFilter, ...props }: AccessProviderSelectProps = { showOptionTags: true }) => {
   const { t } = useTranslation();
 
   const { token: themeToken } = theme.useToken();
@@ -45,11 +46,11 @@ const AccessProviderSelect = ({ showOptionTags, onFilter, ...props }: AccessProv
       .map((provider) => ({
         key: provider.type,
         value: provider.type,
-        label: t(provider.name),
+        label: t(providerLabels?.get(provider.type) ?? provider.name),
         disabled: provider.builtin,
         data: provider,
       }));
-  }, [onFilter]);
+  }, [onFilter, providerLabels, t]);
 
   const renderOption = (key: string) => {
     const provider = accessProvidersMap.get(key) ?? ({ type: "", name: "", icon: "", usages: [] } as unknown as AccessProvider);
@@ -58,7 +59,7 @@ const AccessProviderSelect = ({ showOptionTags, onFilter, ...props }: AccessProv
         <div className="flex items-center gap-2 truncate overflow-hidden">
           <Avatar shape="square" src={provider.icon} size="small" />
           <Typography.Text className="flex-1 truncate overflow-hidden" type={provider.builtin ? "secondary" : void 0} ellipsis>
-            {t(provider.name)}
+            {t(providerLabels?.get(provider.type) ?? provider.name)}
           </Typography.Text>
         </div>
         <div className="flex origin-right scale-80 items-center justify-center gap-1 whitespace-nowrap">

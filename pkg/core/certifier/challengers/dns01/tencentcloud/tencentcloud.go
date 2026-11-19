@@ -6,7 +6,10 @@ import (
 
 	"github.com/go-acme/lego/v5/providers/dns/tencentcloud"
 
+	"github.com/certimate-go/certimate/internal/dnsmanagement"
+	"github.com/certimate-go/certimate/internal/domain"
 	"github.com/certimate-go/certimate/pkg/core"
+	"github.com/certimate-go/certimate/pkg/core/certifier/challengers/dns01/internal/managedtxt"
 )
 
 type ChallengerConfig struct {
@@ -22,8 +25,6 @@ func NewChallenger(config *ChallengerConfig) (core.ACMEChallenger, error) {
 	}
 
 	providerConfig := tencentcloud.NewDefaultConfig()
-	providerConfig.SecretID = config.SecretId
-	providerConfig.SecretKey = config.SecretKey
 	if config.DnsPropagationTimeout != 0 {
 		providerConfig.PropagationTimeout = time.Duration(config.DnsPropagationTimeout) * time.Second
 	}
@@ -31,10 +32,17 @@ func NewChallenger(config *ChallengerConfig) (core.ACMEChallenger, error) {
 		providerConfig.TTL = config.DnsTTL
 	}
 
-	provider, err := tencentcloud.NewDNSProviderConfig(providerConfig)
+	provider, err := dnsmanagement.NewTencent(&domain.Access{Config: map[string]any{
+		"secretId":  config.SecretId,
+		"secretKey": config.SecretKey,
+	}})
 	if err != nil {
 		return nil, err
 	}
-
-	return provider, nil
+	return managedtxt.New(provider, managedtxt.Config{
+		RequestTimeout:     providerConfig.HTTPTimeout,
+		TTL:                providerConfig.TTL,
+		PropagationTimeout: providerConfig.PropagationTimeout,
+		PollingInterval:    providerConfig.PollingInterval,
+	}), nil
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/certimate-go/certimate/internal/notify"
 	"github.com/certimate-go/certimate/internal/repository"
 	"github.com/certimate-go/certimate/internal/rest/handlers"
+	"github.com/certimate-go/certimate/internal/settings"
 	"github.com/certimate-go/certimate/internal/statistics"
 	"github.com/certimate-go/certimate/internal/workflow"
 )
@@ -33,9 +34,9 @@ func BindRouter(router *router.Router[*core.RequestEvent]) {
 	statisticsSvc = statistics.NewStatisticsService(statisticsRepo)
 	notifySvc = notify.NewNotifyService(accessRepo)
 
-	group := router.Group("/api")
-	group.Bind(apis.RequireSuperuserAuth())
-	handlers.BindDNS(group, accessRepo)
+	api := router.Group("/api")
+	settings.BindAppearance(api)
+	group := api.Group("").Bind(apis.RequireSuperuserAuth())
 	handlers.NewCertificatesHandler(group, certificateSvc)
 	handlers.NewWorkflowsHandler(group, workflowSvc)
 	handlers.NewStatisticsHandler(group, statisticsSvc)
