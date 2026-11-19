@@ -169,7 +169,7 @@ func (h dnsHandler) patch(e *core.RequestEvent) error {
 		return resp.Err(e, err)
 	}
 	id := e.Request.PathValue("record")
-	_, err = c.PatchDNSRecord(e.Request.Context(), e.Request.PathValue("zone"), id, input)
+	id, err = c.PatchDNSRecord(e.Request.Context(), e.Request.PathValue("zone"), id, input)
 	return finishDNSWrite(e, id, err)
 }
 

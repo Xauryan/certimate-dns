@@ -13,6 +13,8 @@ export interface DNSRecord {
   content: string;
   ttl: number;
   proxied: boolean;
+  line?: string;
+  readOnly?: boolean;
 }
 export interface Page<T> {
   result: T[];

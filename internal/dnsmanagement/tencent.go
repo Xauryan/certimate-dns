@@ -91,6 +91,9 @@ func (p *Tencent) CreateDNSRecord(ctx context.Context, zone string, in dns.Recor
 	req.Domain = &z
 	req.SubDomain = &rr
 	req.RecordLine = ptr("默认")
+	if in.Line != "" {
+		req.RecordLine = &in.Line
+	}
 	req.RecordType = &in.Type
 	req.Value = &in.Content
 	req.TTL = ptr(uint64(in.TTL))

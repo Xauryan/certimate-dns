@@ -29,7 +29,7 @@ function useDNSPage<T>(url: string, revision: number) {
   return response?.url === url && response.revision === revision ? response : undefined;
 }
 
-function Records({ base, zone, back, provider }: { base: string; zone: Zone; back: () => void; provider: string }) {
+export function Records({ base, zone, back, provider, canWrite=true }: { base: string; zone: Zone; back: () => void; provider: string;canWrite?:boolean }) {
   const { t } = useTranslation();
   const { message, modal } = App.useApp();
   const [page, setPage] = useState(1);
@@ -124,9 +124,9 @@ function Records({ base, zone, back, provider }: { base: string; zone: Zone; bac
             setPage(1);
           }}
         />
-        <Button type="primary" onClick={() => setEditor("new")}>
+        {canWrite && <Button type="primary" onClick={() => setEditor("new")}>
           {t("dns.create")}
-        </Button>
+        </Button>}
         {cf && (
           <Button loading={exporting} onClick={download}>
             {t("dns.export")}
@@ -153,14 +153,14 @@ function Records({ base, zone, back, provider }: { base: string; zone: Zone; bac
             title: t("dns.actions"),
             render: (_, row) => (
               <Space>
-                {types.includes(row.type) && (
+                {canWrite && !row.readOnly && types.includes(row.type) && (
                   <Button type="link" onClick={() => setEditor(row)}>
                     {t("dns.edit")}
                   </Button>
                 )}
-                <Button type="link" danger onClick={() => remove(row)}>
+                {canWrite && !row.readOnly && <Button type="link" danger onClick={() => remove(row)}>
                   {t("dns.delete")}
-                </Button>
+                </Button>}
               </Space>
             ),
           },

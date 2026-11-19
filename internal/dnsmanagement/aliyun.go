@@ -103,7 +103,11 @@ func (p *Aliyun) CreateDNSRecord(ctx context.Context, zone string, in dns.Record
 	if err != nil {
 		return "", err
 	}
-	r, err := ali.AddDomainRecordWithContext(ctx, p.sdk, &ali.AddDomainRecordRequest{DomainName: &z, RR: &rr, Type: &in.Type, Value: &in.Content, TTL: ptr(int64(in.TTL))}, &dara.RuntimeOptions{})
+	req := &ali.AddDomainRecordRequest{DomainName: &z, RR: &rr, Type: &in.Type, Value: &in.Content, TTL: ptr(int64(in.TTL))}
+	if in.Line != "" {
+		req.Line = &in.Line
+	}
+	r, err := ali.AddDomainRecordWithContext(ctx, p.sdk, req, &dara.RuntimeOptions{})
 	if err != nil || r == nil || r.Body == nil || val(r.Body.RecordId) == "" {
 		return "", providerError("Aliyun")
 	}

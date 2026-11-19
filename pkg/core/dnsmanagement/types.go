@@ -3,6 +3,7 @@ package dnsmanagement
 import (
 	"context"
 	"errors"
+	"slices"
 )
 
 const DNSPageSize = 20
@@ -14,14 +15,18 @@ type Zone struct {
 }
 
 type DNSRecord struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Name    string `json:"name"`
-	Content string `json:"content"`
-	TTL     int    `json:"ttl"`
-	Line    string `json:"line,omitempty"`
-	Status  string `json:"status,omitempty"`
-	Proxied bool   `json:"proxied"`
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	Content     string `json:"content"`
+	TTL         int    `json:"ttl"`
+	Line        string `json:"line,omitempty"`
+	Status      string `json:"status,omitempty"`
+	ReadOnly    bool   `json:"readOnly,omitempty"`
+	Description string `json:"description,omitempty"`
+	Weight      *int   `json:"weight,omitempty"`
+	Priority    *int   `json:"priority,omitempty"`
+	Proxied     bool   `json:"proxied"`
 }
 
 type PageInfo struct {
@@ -35,6 +40,7 @@ type DNSPage[T any] struct {
 }
 
 type RecordInput struct {
+	Line    string `json:"line,omitempty"`
 	Type    string `json:"type"`
 	Name    string `json:"name"`
 	Content string `json:"content"`
@@ -56,3 +62,7 @@ type Provider interface {
 	PatchDNSRecord(context.Context, string, string, RecordPatch) (string, error)
 	DeleteDNSRecord(context.Context, string, string) (string, error)
 }
+
+// SupportedProviders lists account types with a registered management adapter.
+func SupportedProviders() []string       { return []string{"aliyun", "cloudflare", "tencentcloud"} }
+func IsSupportedProvider(id string) bool { return slices.Contains(SupportedProviders(), id) }
