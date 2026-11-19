@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -14,9 +15,13 @@ import (
 type inventoryTestRepository struct {
 	certificateRepository // Only a lookup by ID is valid when selecting an existing certificate.
 	cert                  *domain.Certificate
+	err                   error
 }
 
 func (r inventoryTestRepository) GetById(_ context.Context, id string) (*domain.Certificate, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
 	if r.cert == nil || r.cert.Id != id {
 		return nil, domain.ErrRecordNotFound
 	}
@@ -60,6 +65,15 @@ func TestInventoryInputResolvesLiveCertificate(t *testing.T) {
 	_, _ = executor.Execute(execCtx)
 	if strings.Contains(logs.String(), "synthetic-sensitive-marker") {
 		t.Fatal("input form private key in logs")
+	}
+	node.Data.Config["source"] = "synthetic-sensitive-marker"
+	if _, err := executor.Execute(execCtx); err == nil || strings.Contains(err.Error(), "synthetic-sensitive-marker") {
+		t.Fatal("unknown source was accepted or disclosed")
+	}
+	node.Data.Config["source"] = "inventory"
+	executor.certificateRepo = inventoryTestRepository{err: errors.New("synthetic-sensitive-marker")}
+	if _, err := executor.Execute(execCtx); err == nil || strings.Contains(err.Error(), "synthetic-sensitive-marker") || strings.Contains(logs.String(), "synthetic-sensitive-marker") {
+		t.Fatal("inventory lookup diagnostics disclosed untrusted content")
 	}
 }
 

@@ -17,7 +17,7 @@ import (
 
 var certConflict = &opError{409, "Order or renewal changed. Read its status before retrying."}
 
-func certRequest(e *core.RequestEvent, args object, grant scope, previous *dnscert.OrderRequest) (dnscert.OrderRequest, *opError) {
+func certRequest(e *core.RequestEvent, args object, grant scope, provider string, previous *dnscert.OrderRequest) (dnscert.OrderRequest, *opError) {
 	var req dnscert.OrderRequest
 	if previous != nil {
 		req = *previous
@@ -65,31 +65,48 @@ func certRequest(e *core.RequestEvent, args object, grant scope, previous *dnsce
 	if previous != nil && previous.SourceZoneID != req.SourceZoneID {
 		return req, denied
 	}
-	key, size := str(args, "keytype"), str(args, "keysize")
-	if key != "" || size != "" || req.Algorithm == "" {
-		if key == "" {
-			key = "RSA"
-			if req.Algorithm == "EC256" {
-				key = "ECC"
-			}
-		}
-		if size == "" {
-			if key == "RSA" {
-				size = "2048"
-			} else {
-				size = "256"
-			}
-		}
-		switch {
-		case key == "RSA" && size == "2048":
-			req.Algorithm = "RSA2048"
-		case key == "ECC" && size == "256":
-			req.Algorithm = "EC256"
-		default:
-			return req, unsupported
+	algo, ok := certKeySpec(args, req.Algorithm, provider)
+	if !ok {
+		return req, unsupported
+	}
+	req.Algorithm = algo
+	return req, nil
+}
+
+func certKeySpec(args object, previous, provider string) (string, bool) {
+	kind, size := "RSA", "2048"
+	if previous != "" {
+		if suffix, ok := strings.CutPrefix(previous, "RSA"); ok {
+			size = suffix
+		} else if suffix, ok := strings.CutPrefix(previous, "EC"); ok {
+			kind, size = "ECC", suffix
+		} else {
+			return "", false
 		}
 	}
-	return req, nil
+	if _, given := args["keytype"]; given {
+		newKind := str(args, "keytype")
+		if newKind != kind {
+			switch newKind {
+			case "RSA":
+				size = "2048"
+			case "ECC":
+				size = "256"
+			default:
+				return "", false
+			}
+			kind = newKind
+		}
+	}
+	if _, given := args["keysize"]; given {
+		size = str(args, "keysize")
+	}
+	prefix := kind
+	if kind == "ECC" {
+		prefix = "EC"
+	}
+	spec := prefix + size
+	return spec, dnscert.SupportsKeyAlgorithm(provider, spec)
 }
 
 func certReply(o dnscert.Order) object {
@@ -110,7 +127,11 @@ func (s service) certOrderManage(e *core.RequestEvent, grant scope, action strin
 		if !slices.Contains(grant.Accounts, aid) {
 			return nil, denied
 		}
-		req, prob := certRequest(e, args, grant, nil)
+		var provider string
+		if err := e.App.DB().NewQuery("SELECT provider FROM access WHERE id={:id} AND deleted='' AND reserve IN ('','ca')").Bind(dbx.Params{"id": aid}).WithContext(ctx).Row(&provider); err != nil {
+			return nil, missing
+		}
+		req, prob := certRequest(e, args, grant, provider, nil)
 		if prob != nil {
 			return nil, prob
 		}
@@ -188,7 +209,7 @@ func (s service) certOrderManage(e *core.RequestEvent, grant scope, action strin
 		if err := json.Unmarshal([]byte(current.RequestJSON), &prev); err != nil {
 			return nil, certStoreError
 		}
-		req, problem := certRequest(e, args, grant, &prev)
+		req, problem := certRequest(e, args, grant, row.Provider, &prev)
 		if problem != nil {
 			return nil, problem
 		}

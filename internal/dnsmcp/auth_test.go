@@ -489,10 +489,17 @@ func TestDisabledMemberCannotReuseInterfaceKey(t *testing.T) {
 // characters exercise canonical escaping independent of the server's helper.
 func signedWrite(k credential, path, nonce string) url.Values {
 	form := url.Values{
-		"uid": {k.UID}, "timestamp": {strconv.FormatInt(time.Now().Unix(), 10)},
-		"sign_version": {"2"}, "nonce": {nonce}, "name": {"note"}, "type": {"TXT"},
+		"name": {"note"}, "type": {"TXT"},
 		"ttl": {"600"}, "value": {"example + ü & ="},
 	}
+	return signInterfaceForm(k, path, nonce, form)
+}
+
+func signInterfaceForm(k credential, path, nonce string, form url.Values) url.Values {
+	form.Set("uid", k.UID)
+	form.Set("timestamp", strconv.FormatInt(time.Now().Unix(), 10))
+	form.Set("sign_version", "2")
+	form.Set("nonce", nonce)
 	mac := hmac.New(sha256.New, []byte(k.APIKey))
 	mac.Write([]byte("DNSMgr-v2\nPOST\n" + path + "\n" + form.Encode()))
 	form.Set("sign", hex.EncodeToString(mac.Sum(nil)))

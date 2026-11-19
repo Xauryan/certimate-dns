@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
 	"slices"
 	"strings"
 	"unicode"
@@ -88,11 +87,13 @@ type Item struct {
 	Expected      map[string]string `json:"expected,omitempty"`
 	Before        string            `json:"before,omitempty"`
 	After         string            `json:"after,omitempty"`
+	Replacement   *replacementScope `json:"replacement,omitempty"`
 }
 type PreviewRow struct {
-	Before        *dns.DNSRecord `json:"before,omitempty"`
-	Change        Change         `json:"change"`
-	PreviousValue *string        `json:"previousValue,omitempty"`
+	Before        *dns.DNSRecord   `json:"before,omitempty"`
+	Change        Change           `json:"change"`
+	PreviousValue *string          `json:"previousValue,omitempty"`
+	After         *dns.RecordInput `json:"after,omitempty"`
 }
 
 func digest(v any) string {
@@ -234,12 +235,21 @@ func prepare(ctx context.Context, p dns.Provider, provider, zone, origin string,
 	items := make([]Item, 0, len(changes))
 	preview := make([]PreviewRow, 0, len(changes))
 	targets := map[string]bool{}
+	var edit dns.RecordEditCapabilities
+	if slices.ContainsFunc(changes, func(c Change) bool { return c.Action == "replace" }) {
+		var err error
+		edit, err = dns.RecordEditCapabilitiesForZone(ctx, p, zone)
+		if err != nil {
+			return nil, nil, errors.New("could not read provider record edit capabilities")
+		}
+	}
+	destinations := map[string][]dns.DNSRecord{}
 	for i, c := range changes {
 		item := Item{Action: c.Action, ID: c.ID, State: "ready"}
 		row := PreviewRow{Change: c}
 		key := c.ID
-		if c.Action != "create" && (c.Line != "" || c.Priority != nil || c.Weight != nil || c.Description != "" || c.Status != "" || c.Group != "") {
-			return nil, nil, fmt.Errorf("item %d: unexpected create attributes", i+1)
+		if c.Action != "create" && (c.Line != "" || c.Weight != nil || c.Description != "" || c.Status != "" || c.Group != "" || (c.Action != "replace" && c.Priority != nil)) {
+			return nil, nil, fmt.Errorf("item %d: unexpected record attributes", i+1)
 		}
 		if c.Action == "create" {
 			if c.ID != "" || c.Value != "" {
@@ -275,10 +285,10 @@ func prepare(ctx context.Context, p dns.Provider, provider, zone, origin string,
 			}
 			row.Before = old
 			item.Before = digest(old)
-			if c.Name != "" || c.Type != "" || c.Line != "" {
+			if c.Action != "replace" && (c.Name != "" || c.Type != "") {
 				return nil, nil, errors.New("record owner and type are immutable")
 			}
-			if c.Action != "patch" && (c.TTL != 0 || c.Content != "") {
+			if c.Action != "patch" && c.Action != "replace" && (c.TTL != 0 || c.Content != "") {
 				return nil, nil, errors.New("unexpected record data")
 			}
 			switch c.Action {
@@ -301,6 +311,18 @@ func prepare(ctx context.Context, p dns.Provider, provider, zone, origin string,
 				}
 				item.MatchPriority = matchPriority(in)
 				item.After = desiredKey(in)
+			case "replace":
+				want, err := prepareReplacement(ctx, p, provider, zone, origin, rows, *old, c, edit, &item)
+				if err != nil {
+					return nil, nil, fmt.Errorf("item %d: %w", i+1, err)
+				}
+				projected := replacementRecord(*old, want)
+				owner := canonicalName(projected.Name)
+				if slices.ContainsFunc(destinations[owner], func(row dns.DNSRecord) bool { return replacementConflict(row, projected) }) {
+					return nil, nil, fmt.Errorf("item %d: conflicting replacements in the same batch", i+1)
+				}
+				destinations[owner] = append(destinations[owner], projected)
+				row.After = &want
 			default:
 				if !slices.Contains(fields(p), c.Action) {
 					return nil, nil, errors.New("provider does not support this batch action")

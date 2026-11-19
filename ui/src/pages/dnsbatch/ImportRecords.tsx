@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
 import { Alert, Button, Checkbox, Input, InputNumber, Radio, Select, Space, Table, Typography } from "antd";
 
+import { dnsRequest } from "@/api/dns";
 import { unwrapErrMsg } from "@/utils/error";
 
-import { type BatchFileRow, workbookLicenseURL } from "./files";
-import { type BatchZone, type Change, type Draft, type Features, type Preview, metadataSummary, useData, useLabel } from "./model";
+import { type BatchFileOptions, type BatchFileRow, workbookLicenseURL } from "./files";
+import { type BatchZone, type Change, type Draft, type Group, type Preview, type TargetFeatures, metadataSummary, useData, useLabel } from "./model";
 
 function replaceOrigin(name: string, origin: string, target: string) {
   const fqdn = name.toLowerCase().replace(/\.$/, "");
@@ -14,46 +15,62 @@ function replaceOrigin(name: string, origin: string, target: string) {
   throw new Error("Record is outside the selected source zone.");
 }
 
-export default function ImportRecords({
-  base,
-  zones,
-  preview,
-  busy,
-  features,
-}: {
-  base: string;
-  zones: BatchZone[];
-  preview: Preview;
-  busy: boolean;
-  features: Features;
-}) {
+type Props = { zones: BatchZone[]; features: TargetFeatures; preview: Preview; busy: boolean };
+type TargetRow = BatchFileRow & { target: BatchZone };
+
+export default function ImportRecords(props: Props) {
   const l = useLabel();
-  const provider = decodeURIComponent(base.split("/")[3]);
+  const { zones } = props;
+  const duplicate = zones.some((z, i) => zones.slice(0, i).some((other) => other.name.toLowerCase() === z.name.toLowerCase()));
+  const [originKey, setOrigin] = useState<string | undefined>(duplicate ? undefined : zones[0].key);
+  const origin = zones.find((z) => z.key === originKey);
+  return (
+    <Space orientation="vertical" style={{ width: "100%" }}>
+      {zones.length > 1 && (
+        <label>
+          {l("文件及相对记录名的目标", "Target for files and relative names")}{" "}
+          <Select
+            aria-label={l("文件及相对记录名的目标", "Target for files and relative names")}
+            style={{ minWidth: 240 }}
+            value={originKey}
+            options={zones.map((z) => ({ value: z.key, label: z.label }))}
+            onChange={setOrigin}
+          />
+        </label>
+      )}
+      {origin ? (
+        <ImportEditor key={origin.key} {...props} origin={origin} />
+      ) : (
+        <Alert type="info" title={l("存在同名域名，请先选择目标账号和域名。", "Select an account and zone to resolve duplicate zone names.")} />
+      )}
+    </Space>
+  );
+}
+
+function ImportEditor({ zones, preview, busy, features: allFeatures, origin }: Props & { origin: BatchZone }) {
+  const l = useLabel();
+  const features = allFeatures[origin.key];
   const caps = features.capabilities;
   const createLine = caps.line;
   const [mode, setMode] = useState<"paste" | "excel" | "bind" | "archive">("paste");
-  const [originId, setOriginId] = useState(zones[0].id);
-  const origin = zones.find((z) => z.id === originId) ?? zones[0];
-  const advanced = base + "/zones/" + encodeURIComponent(origin.id) + "/advanced";
+  const advanced = origin.key + "/advanced";
   const capabilities = useData<{ details: boolean }>(createLine ? advanced + "/features" : undefined);
-  const details = useData<{ lines: { id: string; name: string }[] }>(capabilities?.data?.details ? advanced + "/details" : undefined);
-  const groups = useData<{ id: string; name: string }[]>(
-    mode !== "bind" && features.groups ? base + "/zones/" + encodeURIComponent(origin.id) + "/batch/groups" : undefined
-  );
+  const details = useData<{ lines: Group[] }>(capabilities?.data?.details ? advanced + "/details" : undefined);
+  const groups = useData<Group[]>(mode !== "bind" && features.groups ? origin.key + "/batch/groups" : undefined);
   const [group, setGroup] = useState("");
   const [omitInvalid, setOmitInvalid] = useState(false);
   const [repeat, setRepeat] = useState(false);
   const [text, setText] = useState("");
   const [file, setFile] = useState<File>();
   const [rrtype, setType] = useState("");
-  const [ttl, setTTL] = useState<number | null>(caps.defaultTTL ?? 600);
+  const [ttl, setTTL] = useState<number | null>(null);
   const [priority, setPriority] = useState<number | null>(null);
   const [weight, setWeight] = useState<number | null>(null);
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<"disabled" | "enabled">();
   const [line, setLine] = useState("");
   const [defaultValue, setDefaultValue] = useState("");
-  const [rows, setRows] = useState<BatchFileRow[]>();
+  const [rows, setRows] = useState<TargetRow[]>();
   const [error, setError] = useState("");
   const [parsing, setParsing] = useState(false);
   const locked = useRef(false);
@@ -72,35 +89,77 @@ export default function ImportRecords({
     reset();
     try {
       const { parseSmartPaste, readWorkbook, parseArchive } = await import("./files");
-      const options = {
-        provider,
-        accessId: decodeURIComponent(base.split("/")[4]),
-        zoneId: origin.id,
-        groups: groups?.data,
-        capabilities: caps,
-        fields: features.fields,
-        priority: mode === "paste" && caps.priorityTypes?.includes(rrtype) ? (priority ?? undefined) : undefined,
-        weight: mode === "paste" ? (weight ?? undefined) : undefined,
-        description: mode === "paste" ? description : undefined,
-        status: mode === "paste" ? status : undefined,
-        zone: origin.name,
-        zones: repeat ? [origin.name] : zones.map((z) => z.name),
-        type: rrtype,
-        ttl: ttl ?? undefined,
-        value: defaultValue,
-        line,
-        lines: details?.data?.lines,
-      };
-      let parsed: BatchFileRow[];
-      if (mode === "archive") {
-        if (file && file.size > 64 * 1024 * 1024) throw new Error(l("归档文件超过 64 MiB。", "Archive exceeds 64 MiB."));
-        parsed = parseArchive(file ? await file.text() : text, options);
-      } else if (mode === "excel" && file) parsed = await readWorkbook(file, options);
-      else {
-        parsed = parseSmartPaste(text, options);
-        if (group && !cross) parsed = parsed.map((r) => ({ ...r, change: { ...r.change, group } }));
+      const inputs = mode === "archive" || (mode === "excel" && !repeat) ? [origin] : zones;
+      const parsed: TargetRow[] = [];
+      const visited = new Set<number>();
+      const namedTargets = new Map<string, BatchZone[]>();
+      for (const z of zones) {
+        const name = z.name.toLowerCase().replace(/\.$/, "");
+        const matches = namedTargets.get(name) ?? [];
+        matches.push(z);
+        namedTargets.set(name, matches);
       }
-
+      for (const target of inputs) {
+        const targetFeatures = allFeatures[target.key];
+        const targetCaps = targetFeatures.capabilities;
+        let targetLines = target.key === origin.key ? details?.data?.lines : undefined;
+        let targetGroups = target.key === origin.key ? groups?.data : undefined;
+        if (mode === "excel" && target.key !== origin.key) {
+          if (targetFeatures.groups) targetGroups = await dnsRequest<Group[]>(target.key + "/batch/groups");
+          if (targetCaps.line) {
+            const advanced = await dnsRequest<{ details: boolean }>(target.key + "/advanced/features");
+            if (advanced.details) targetLines = (await dnsRequest<{ lines: Group[] }>(target.key + "/advanced/details")).lines;
+          }
+        }
+        const options: BatchFileOptions = {
+          provider: target.provider,
+          accessId: target.accessId,
+          zoneId: target.id,
+          zone: mode === "paste" ? origin.name : target.name,
+          zones: repeat ? [origin.name] : zones.map((z) => z.name),
+          capabilities: targetCaps,
+          fields: targetFeatures.fields,
+          groups: targetGroups,
+          lines: targetLines,
+          type: rrtype,
+          ttl: ttl ?? targetCaps.defaultTTL,
+          value: defaultValue,
+          line: cross ? "" : line,
+          priority: mode === "paste" && caps.priorityTypes?.includes(rrtype) ? (priority ?? undefined) : undefined,
+          weight: mode === "paste" ? (weight ?? undefined) : undefined,
+          description: mode === "paste" ? description : undefined,
+          status: mode === "paste" ? status : undefined,
+        };
+        let projected: BatchFileRow[];
+        if (mode === "archive") {
+          if (file && file.size > 64 * 1024 * 1024) throw new Error(l("归档文件超过 64 MiB。", "Archive exceeds 64 MiB."));
+          projected = parseArchive(file ? await file.text() : text, options);
+        } else if (mode === "excel" && file) {
+          projected = await readWorkbook(file, options);
+        } else projected = parseSmartPaste(text, options);
+        for (const row of projected) {
+          if (mode === "paste" && !repeat) {
+            const match = namedTargets.get(row.zone.toLowerCase()) ?? [];
+            const dest = match.length === 1 ? match[0] : match.find((z) => z.key === origin.key);
+            if (!dest) {
+              if (!visited.has(row.row)) {
+                visited.add(row.row);
+                parsed.push({
+                  ...row,
+                  target: origin,
+                  error: row.error ?? l("无法确定账号及域名，请选择唯一目标。", "Choose a unique target account and zone."),
+                });
+              }
+              continue;
+            }
+            if (dest.key !== target.key) continue;
+          }
+          const change = { ...row.change };
+          if (mode === "paste" && repeat && !row.error) change.name = replaceOrigin(change.name, origin.name, target.name);
+          if (mode === "paste" && !cross && group) change.group = group;
+          parsed.push({ ...row, change, target });
+        }
+      }
       setRows(parsed);
     } catch (e) {
       setError(unwrapErrMsg(e));
@@ -122,17 +181,11 @@ export default function ImportRecords({
           if (omitInvalid) continue;
           throw new Error(row.error);
         }
-        const targets = mode === "archive" ? [origin] : repeat ? zones : zones.filter((z) => z.name.toLowerCase() === row.zone.toLowerCase());
-        if (!targets.length) throw new Error(l("记录不属于所选域名", "Record is outside the selected zones") + " · " + row.change.name);
-        if (!repeat && targets.length !== 1)
-          throw new Error(l("存在同名域名，请只选择一个目标。", "Select one target when multiple zones have the same name."));
-        for (const target of targets) {
-          const changes = grouped.get(target.id) ?? [];
-          changes.push({ ...row.change, name: repeat && mode !== "archive" ? replaceOrigin(row.change.name, origin.name, target.name) : row.change.name });
-          grouped.set(target.id, changes);
-        }
+        const changes = grouped.get(row.target.key) ?? [];
+        changes.push(row.change);
+        grouped.set(row.target.key, changes);
       }
-      const drafts: Draft[] = zones.filter((z) => grouped.has(z.id)).map((zone) => ({ zone, payload: { changes: grouped.get(zone.id)! } }));
+      const drafts: Draft[] = zones.filter((z) => grouped.has(z.key)).map((zone) => ({ zone, payload: { changes: grouped.get(zone.key)! } }));
       if (drafts.length) preview(drafts);
     } catch (e) {
       setError(unwrapErrMsg(e));
@@ -159,19 +212,6 @@ export default function ImportRecords({
             reset();
           }}
         />
-        {cross && (
-          <Select
-            disabled={parsing}
-            aria-label={l("相对名称所属域名", "Zone for relative names")}
-            style={{ minWidth: 210 }}
-            value={origin.id}
-            options={zones.map((z) => ({ value: z.id, label: z.name }))}
-            onChange={(v) => {
-              setOriginId(v);
-              reset();
-            }}
-          />
-        )}
       </Space>
       {(mode === "paste" || mode === "excel") && (
         <>
@@ -218,6 +258,7 @@ export default function ImportRecords({
               <InputNumber
                 disabled={parsing}
                 value={ttl}
+                placeholder={String(caps.defaultTTL ?? 600)}
                 min={Math.min(caps.minTTL, ...(caps.specialTTLs ?? []))}
                 max={caps.maxTTL}
                 precision={0}
@@ -308,7 +349,8 @@ export default function ImportRecords({
                 )}
               </>
             )}
-            {createLine &&
+            {!cross &&
+              createLine &&
               (details?.data?.lines?.length ? (
                 <Select
                   allowClear
@@ -398,8 +440,7 @@ export default function ImportRecords({
           loading={parsing}
           disabled={
             ((mode === "archive" || mode === "excel") && features.groups && !groups?.data) ||
-            (mode === "excel" ? !file : !(text.trim() || (mode === "archive" && file))) ||
-            (mode !== "archive" && !ttl)
+            (mode === "excel" ? !file : !(text.trim() || (mode === "archive" && file)))
           }
           onClick={parse}
         >
@@ -412,17 +453,17 @@ export default function ImportRecords({
         <Table
           size="small"
           scroll={{ x: 620 }}
-          rowKey="row"
+          rowKey={(r) => r.target.key + "/" + r.row}
           dataSource={rows}
           pagination={{ pageSize: 10, showSizeChanger: false }}
           columns={[
             { title: l("行", "Row"), dataIndex: "row" },
-            { title: l("域名", "Zone"), dataIndex: "zone" },
+            { title: l("目标", "Target"), render: (_, r) => r.target.label },
             { title: l("名称", "Name"), render: (_, r) => r.change.name },
             { title: l("记录类型", "Type"), render: (_, r) => r.change.type },
             { title: l("记录值", "Value"), render: (_, r) => r.change.content },
             { title: "TTL", render: (_, r) => r.change.ttl },
-            { title: l("记录属性", "Record attributes"), render: (_, r) => metadataSummary(r.change, l, provider) || "—" },
+            { title: l("记录属性", "Record attributes"), render: (_, r) => metadataSummary(r.change, l, r.target.provider) || "—" },
             { title: l("校验", "Validation"), render: (_, r) => (r.error ? <Typography.Text type="danger">{r.error}</Typography.Text> : l("通过", "Valid")) },
           ]}
         />

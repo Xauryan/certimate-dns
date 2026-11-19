@@ -79,7 +79,7 @@ func (p *Plan) apply(ctx context.Context, db dbx.Builder, client dns.Provider, s
 			p.stopPending()
 			break
 		}
-		fresh, _, err := prepare(ctx, client, s.provider, s.zone, origin, rows, []Change{c})
+		fresh, preview, err := prepare(ctx, client, s.provider, s.zone, origin, rows, []Change{c})
 		if err != nil || fresh[0].Before != item.Before {
 			item.State = "conflict"
 			continue
@@ -96,12 +96,51 @@ func (p *Plan) apply(ctx context.Context, db dbx.Builder, client dns.Provider, s
 			}
 			return err
 		}
+		if c.Action == "replace" {
+			source := digest(canonicalName(preview[0].Before.Name))
+			target := digest(canonicalName(preview[0].After.Name))
+			item.Replacement = &replacementScope{Source: source, Target: target, Roster: replacementRoster(rows, c.ID, source, target)}
+		}
 		item.State = "sending"
 		if err := p.save(db); err != nil {
 			return err
 		}
-		id, err := dispatch(ctx, client, s, c)
-		if err != nil || id == "" || (c.Action != "create" && c.Action != "patch" && id != c.ID) {
+		var id string
+		if c.Action == "replace" {
+			var authErr error
+			id, err = dns.ReplaceVerified(ctx, client, s.zone, origin, *preview[0].Before, *preview[0].After, func() bool {
+				authErr = authorize()
+				return authErr == nil
+			})
+			switch {
+			case errors.Is(err, dns.ErrRecordEditConflict), errors.Is(err, dns.ErrInvalidDNSRequest):
+				item.State = "conflict"
+				continue
+			case errors.Is(err, dns.ErrRecordEditDenied):
+				item.State = "not_sent"
+				p.stopPending()
+				p.summarize()
+				if err := p.save(db); err != nil {
+					return err
+				}
+				return authErr
+			case errors.Is(err, dns.ErrRecordEditRead):
+				item.State = "not_sent"
+				p.stopPending()
+			case err == nil:
+				if err = authorize(); err == nil {
+					if match, _ := item.replacementGroupMatches(ctx, client, s.zone, id); !match {
+						err = dns.ErrRecordEditUncertain
+					}
+				}
+			}
+			if item.State == "not_sent" {
+				break
+			}
+		} else {
+			id, err = dispatch(ctx, client, s, c)
+		}
+		if err != nil || id == "" || (c.Action != "create" && c.Action != "patch" && c.Action != "replace" && id != c.ID) {
 			item.State = "unknown"
 			p.stopPending()
 			break
@@ -127,9 +166,12 @@ func (p *Plan) apply(ctx context.Context, db dbx.Builder, client dns.Provider, s
 	return p.save(db)
 }
 
-func (p *Plan) reconcile(ctx context.Context, db dbx.Builder, client dns.Provider, s scope, origin string) error {
+func (p *Plan) reconcile(ctx context.Context, db dbx.Builder, client dns.Provider, s scope, origin string, authorize func() error) error {
 	if p.State != "uncertain" && p.State != "applying" {
 		return errConflict
+	}
+	if err := authorize(); err != nil {
+		return err
 	}
 	rows, err := zoneRecords(ctx, client, s.zone, origin)
 	if err != nil {
@@ -140,6 +182,9 @@ func (p *Plan) reconcile(ctx context.Context, db dbx.Builder, client dns.Provide
 		if item.State != "unknown" && item.State != "sending" {
 			continue
 		}
+		if err := authorize(); err != nil {
+			return err
+		}
 		old := byID(rows, item.ID)
 		matched := false
 		switch item.Action {
@@ -147,6 +192,15 @@ func (p *Plan) reconcile(ctx context.Context, db dbx.Builder, client dns.Provide
 			matched = old == nil
 		case "patch":
 			matched = old != nil && desiredKey(matchingData(*old, s.provider, false, item.MatchPriority)) == item.After
+		case "replace":
+			id, err := item.findReplacement(ctx, client, s.zone, rows)
+			if err != nil {
+				return err
+			}
+			matched = id != ""
+			if matched {
+				item.ID = id
+			}
 		case "create":
 			id, err := item.verifyCreate(ctx, client, s, origin, rows)
 			if err != nil {
@@ -173,6 +227,9 @@ func (p *Plan) reconcile(ctx context.Context, db dbx.Builder, client dns.Provide
 	}
 	p.stopPending()
 	p.summarize()
+	if err := authorize(); err != nil {
+		return err
+	}
 	return p.save(db)
 }
 

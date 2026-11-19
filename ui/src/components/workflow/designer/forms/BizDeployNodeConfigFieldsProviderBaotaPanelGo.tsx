@@ -18,6 +18,7 @@ const BizDeployNodeConfigFieldsProviderBaotaPanelGo = () => {
   });
   const formRule = createSchemaFieldRule(formSchema);
   const initialValues = getInitialValues();
+  const siteType = Form.useWatch([parentNamePath, "siteType"], Form.useFormInstance());
 
   return (
     <>
@@ -28,7 +29,7 @@ const BizDeployNodeConfigFieldsProviderBaotaPanelGo = () => {
         rules={[formRule]}
       >
         <Select
-          options={["php", "java", "asp", "go", "python", "nodejs", "proxy", "general"].map((s) => ({
+          options={["php", "java", "asp", "go", "python", "nodejs", "proxy", "general", "iis-domain"].map((s) => ({
             label: t(`workflow_node.deploy.form.baotapanelgo_site_type.option.${s}.label`),
             value: s,
           }))}
@@ -39,7 +40,7 @@ const BizDeployNodeConfigFieldsProviderBaotaPanelGo = () => {
       <Form.Item
         name={[parentNamePath, "siteNames"]}
         initialValue={initialValues.siteNames}
-        label={t("workflow_node.deploy.form.baotapanelgo_site_names.label")}
+        label={t(siteType === "iis-domain" ? "workflow_node.deploy.form.baotapanelgo_site_names.domain_label" : "workflow_node.deploy.form.baotapanelgo_site_names.label")}
         extra={t("workflow_node.deploy.form.baotapanelgo_site_names.help")}
         rules={[formRule]}
         tooltip={<span dangerouslySetInnerHTML={{ __html: t("workflow_node.deploy.form.baotapanelgo_site_names.tooltip") }}></span>}

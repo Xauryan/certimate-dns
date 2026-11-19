@@ -112,8 +112,10 @@ const { chromium } = require("playwright-core");
     await dialog.locator("button.ant-btn-primary").click();
     await page.getByRole("button", { name: "Disable renewal" }).waitFor();
     assert.deepEqual(changes, ["draft", "reserve", "renew"]);
+    await require("./certificate-order-batch.cjs")(page);
+    await require("./google-eab-settings.cjs")(page, base);
     assert.deepEqual(errors, []);
-    console.log("PASS certificate order draft, zone scoping, explicit reservation, history and confirmed renewal");
+    console.log("PASS certificate orders, confirmed renewal, mixed-result batch actions and Google project EAB settings");
   } finally {
     await browser.close();
   }

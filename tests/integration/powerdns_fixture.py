@@ -11,6 +11,7 @@ from urllib.parse import unquote, urlsplit
 class Provider:
     def __init__(self):
         self.calls = 0
+        self.patches = 0
         self.keys = [secrets.token_urlsafe(24) for _ in range(2)]
         # Zone identifiers can coincide in independent accounts.
         self.zones = {
@@ -57,6 +58,7 @@ def powerdns():
                 return self.reply(200, {"id": name, "name": name, "rrsets": list(sets.values())})
 
             # Stage the changes so a failed PATCH leaves the zone intact.
+            provider.patches += 1
             updated = {k: dict(v, records=list(v["records"])) for k, v in sets.items()}
             try:
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))

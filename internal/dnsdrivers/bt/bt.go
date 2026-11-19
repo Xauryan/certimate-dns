@@ -215,11 +215,7 @@ func (p *provider) DNSRecords(ctx context.Context, zone string, page int, filter
 	}
 	out := dnsutil.Page[dns.DNSRecord](page, *result.Count)
 	for _, r := range result.Data {
-		status := "enabled"
-		if r.State == 1 {
-			status = "disabled"
-		}
-		out.Items = append(out.Items, dns.DNSRecord{ID: strconv.FormatInt(r.ID, 10), Type: r.Type, Name: dnsutil.FullName(r.Host, name), Content: r.Value, TTL: r.TTL, Line: strconv.FormatInt(r.ViewID, 10), Status: status, Description: r.Remark, Weight: &r.MX, Priority: &r.MX})
+		out.Items = append(out.Items, r.dns(name))
 	}
 	return out, nil
 }
@@ -351,6 +347,7 @@ func (p *provider) old(ctx context.Context, zone, id string) (record, error) {
 	return found, nil
 }
 func (p *provider) change(ctx context.Context, zone, id, route string, fields map[string]any) (string, error) {
+	defer u.LockZone(endpoint, zone)()
 	r, err := p.old(ctx, zone, id)
 	if err != nil {
 		return "", err

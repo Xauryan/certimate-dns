@@ -3,7 +3,26 @@ import { Alert, Button, Card, Input, InputNumber, Select, Space, Table, Typograp
 
 import { type Page } from "@/api/dns";
 
-import { type BatchRecord, type BatchZone, type Change, type Features, type Group, type Preview, actionLabel, batchPath, useData, useLabel } from "./model";
+import {
+  type BatchRecord,
+  type BatchZone,
+  type Change,
+  type Features,
+  type Group,
+  type Preview,
+  type TargetFeatures,
+  actionLabel,
+  useData,
+  useLabel,
+} from "./model";
+
+function desiredOwner(name: string, origin: string) {
+  const suffix = origin.toLowerCase().replace(/\.$/, "");
+  if (name === "@") return suffix;
+  if (name.endsWith(".")) return name.slice(0, -1);
+  if (name === suffix || name.endsWith("." + suffix)) return name;
+  return name + "." + suffix;
+}
 
 type Selection = Record<string, BatchRecord[]>;
 
@@ -32,7 +51,7 @@ function Inventory({
   const data = useData<Page<BatchRecord>>(path + "/search?" + query, revision);
   const current = data?.data?.result ?? [];
   return (
-    <Card title={zone.name} size="small">
+    <Card title={zone.label} size="small">
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -130,17 +149,45 @@ function Inventory({
   );
 }
 
+function TargetValue({ action, zone, value, onChange }: { action: string; zone: BatchZone; value?: string; onChange: (v: string) => void }) {
+  const l = useLabel();
+  const advanced = useData<{ details: boolean }>(action === "line" ? zone.key + "/advanced/features" : undefined);
+  const details = useData<{ lines: Group[] }>(advanced?.data?.details ? zone.key + "/advanced/details" : undefined);
+  const groups = useData<Group[]>(action === "group" ? zone.key + "/batch/groups" : undefined);
+  const label = (action === "group" ? l("目标分组", "Target group") : l("目标线路", "Target line")) + " · " + zone.label;
+  const options = action === "group" ? groups?.data : details?.data?.lines;
+  const error = groups?.error || advanced?.error || details?.error;
+  if (error) return <Alert type="error" title={zone.label + " · " + error} />;
+  const manual = action === "line" && (advanced?.data?.details === false || options?.length === 0);
+  return (
+    <label>
+      {label}{" "}
+      {manual ? (
+        <Input aria-label={label} value={value ?? ""} onChange={(e) => onChange(e.target.value)} />
+      ) : (
+        <Select
+          aria-label={label}
+          loading={!options}
+          disabled={!options?.length}
+          options={options?.map((g) => ({ value: g.id, label: g.name }))}
+          style={{ minWidth: 160 }}
+          value={value || undefined}
+          onChange={onChange}
+        />
+      )}
+    </label>
+  );
+}
+
 export default function RecordSelection({
-  base,
   zones,
   features,
   revision,
   preview,
   busy,
 }: {
-  base: string;
   zones: BatchZone[];
-  features?: Features;
+  features: TargetFeatures;
   revision: number;
   preview: Preview;
   busy: boolean;
@@ -148,26 +195,69 @@ export default function RecordSelection({
   const l = useLabel();
   const [selected, setSelected] = useState<Selection>({});
   const [action, setAction] = useState("patch");
+  const [owner, setOwner] = useState("");
+  const [recordType, setRecordType] = useState("");
+  const [priority, setPriority] = useState<number | null>(null);
   const [value, setValue] = useState("");
   const [ttl, setTTL] = useState<number | null>(null);
-  const chosen = zones.filter((z) => z.canWrite !== false && selected[z.id]?.length);
-  const count = chosen.reduce((n, z) => n + selected[z.id].length, 0);
-  const options = ["patch", "delete", ...(features?.fields ?? [])];
-  const groups = useData<Group[]>(action === "group" && chosen.length === 1 ? batchPath(base, chosen[0]) + "/groups" : undefined);
-  const invalidValue = action === "patch" ? !value && ttl == null : action !== "remark" && action !== "delete" && !value;
+  const chosen = zones.filter((z) => z.canWrite !== false && selected[z.key]?.length);
+  const count = chosen.reduce((n, z) => n + selected[z.key].length, 0);
+  const [targetValues, setTargetValues] = useState<Record<string, string>>({});
+  const targets = chosen.length ? chosen : zones.filter((z) => z.canWrite !== false);
+  const fields = features[targets[0]?.key]?.fields ?? [];
+  const commonEdit = (field: "rename" | "retype" | "priority") => targets.length > 0 && targets.every((z) => features[z.key]?.edit?.[field]);
+  const canRename = commonEdit("rename");
+  const canRetype = commonEdit("retype");
+  const canPriority =
+    commonEdit("priority") &&
+    chosen.length > 0 &&
+    chosen.every((z) => selected[z.key].every((r) => features[z.key].capabilities.priorityTypes?.includes(recordType || r.type)));
+  const rich = canRename || canRetype || canPriority;
+  const types = (features[targets[0]?.key]?.capabilities.types ?? []).filter((t) => targets.every((z) => features[z.key]?.capabilities.types.includes(t)));
+  const options = ["patch", "delete", ...(rich ? ["replace"] : []), ...fields.filter((f) => targets.every((z) => features[z.key]?.fields.includes(f)))];
+  const scoped = action === "group" || action === "line";
+  const newOwner = owner.trim().toLowerCase();
+  let invalidValue = action !== "remark" && action !== "delete" && !value;
+  if (scoped) invalidValue = chosen.some((z) => !targetValues[z.key]);
+  if (action === "patch") invalidValue = !value && ttl == null;
+  if (action === "replace") invalidValue = !newOwner && !recordType && priority == null;
+  const invalidTargets = chosen.filter((z) => {
+    const caps = features[z.key]?.capabilities;
+    if (!caps || !options.includes(action)) return true;
+    if (action !== "patch" && action !== "replace") return false;
+    if (ttl != null && !(ttl >= caps.minTTL && ttl <= caps.maxTTL) && !caps.specialTTLs?.includes(ttl)) return true;
+    if (action === "patch") return selected[z.key].some((r) => !caps.types.includes(r.type));
+    if ((newOwner && !canRename) || (recordType && !canRetype) || (priority != null && !canPriority)) return true;
+    if (newOwner) {
+      const suffix = z.name.toLowerCase().replace(/\.$/, "");
+      const dest = desiredOwner(newOwner, z.name);
+      if (dest !== suffix && !dest.endsWith("." + suffix)) return true;
+    }
+    return selected[z.key].some((r) => !caps.types.includes(recordType || r.type));
+  });
   function build() {
     preview(
       chosen.map((zone) => ({
         zone,
         payload: {
-          changes: selected[zone.id].map((r): Change => {
+          changes: selected[zone.key].map((r): Change => {
             switch (action) {
               case "patch":
                 return { action, id: r.id, ttl: ttl ?? r.ttl, content: value || r.content };
+              case "replace":
+                return {
+                  action,
+                  id: r.id,
+                  ...(newOwner && { name: desiredOwner(newOwner, zone.name) }),
+                  ...(recordType && { type: recordType }),
+                  ...(priority != null && { priority }),
+                  ...(value && { content: value }),
+                  ...(ttl != null && { ttl }),
+                };
               case "delete":
                 return { action, id: r.id };
               default:
-                return { action, id: r.id, value };
+                return { action, id: r.id, value: scoped ? targetValues[zone.key] : value };
             }
           }),
         },
@@ -178,13 +268,13 @@ export default function RecordSelection({
     <Space orientation="vertical" style={{ width: "100%" }}>
       {zones.map((z) => (
         <Inventory
-          key={z.id}
-          path={batchPath(base, z)}
+          key={z.key}
+          path={z.key + "/batch"}
           zone={z}
-          features={features}
+          features={features[z.key]}
           revision={revision}
-          selected={selected[z.id] ?? []}
-          onChange={(rows) => setSelected((v) => ({ ...v, [z.id]: rows }))}
+          selected={selected[z.key] ?? []}
+          onChange={(rows) => setSelected((v) => ({ ...v, [z.key]: rows }))}
         />
       ))}
       {zones.some((z) => z.canWrite !== false) && (
@@ -199,11 +289,52 @@ export default function RecordSelection({
             options={Array.from(new Set(options)).map((v) => ({ value: v, label: actionLabel(v, l) }))}
             onChange={(a) => {
               setAction(a);
+              setTargetValues({});
               setValue("");
               setTTL(null);
+              setOwner("");
+              setRecordType("");
+              setPriority(null);
             }}
           />
-          {action === "patch" && (
+          {action === "replace" && (
+            <>
+              {canRename && (
+                <Input
+                  aria-label={l("新记录名", "New record name")}
+                  placeholder={l("相对名或以点结尾的完整名称", "Relative name or fully qualified name ending in a dot")}
+                  value={owner}
+                  onChange={(e) => setOwner(e.target.value)}
+                />
+              )}
+              {canRetype && (
+                <Select
+                  aria-label={l("新记录类型", "New record type")}
+                  allowClear
+                  placeholder={l("保留原类型", "Keep current type")}
+                  style={{ minWidth: 160 }}
+                  value={recordType || undefined}
+                  options={types.map((t) => ({ value: t, label: t }))}
+                  onChange={(v) => {
+                    setRecordType(v ?? "");
+                    setPriority(null);
+                  }}
+                />
+              )}
+              {canPriority && (
+                <InputNumber
+                  min={0}
+                  max={65535}
+                  precision={0}
+                  aria-label={l("新优先级", "New priority")}
+                  placeholder={l("优先级", "Priority")}
+                  value={priority}
+                  onChange={setPriority}
+                />
+              )}
+            </>
+          )}
+          {(action === "patch" || action === "replace") && (
             <>
               <Input
                 placeholder={l("保留原记录值", "Keep current value")}
@@ -214,8 +345,7 @@ export default function RecordSelection({
               <InputNumber
                 placeholder={l("保留原 TTL", "Keep current TTL")}
                 aria-label={l("新 TTL", "New TTL")}
-                min={Math.min(features?.capabilities?.minTTL ?? 1, ...(features?.capabilities?.specialTTLs ?? []))}
-                max={features?.capabilities?.maxTTL ?? 604800}
+                min={1}
                 precision={0}
                 style={{ width: 150 }}
                 value={ttl}
@@ -235,25 +365,24 @@ export default function RecordSelection({
               ]}
             />
           )}
-          {action === "group" && (
-            <>
-              {chosen.length === 1 ? (
-                <Select
-                  aria-label={l("目标分组", "Target group")}
-                  loading={!groups}
-                  placeholder={l("选择分组", "Select group")}
-                  style={{ minWidth: 180 }}
-                  value={value || undefined}
-                  options={groups?.data?.map((g) => ({ value: g.id, label: g.name }))}
-                  onChange={setValue}
-                />
-              ) : (
-                <Typography.Text>{l("请在单个域名内选择要移动的记录。", "Select records from a single zone to move groups.")}</Typography.Text>
-              )}
-              {groups?.error && <Alert type="error" title={groups.error} />}
-            </>
+          {scoped &&
+            chosen.map((z) => (
+              <TargetValue
+                key={z.key + "/" + action}
+                zone={z}
+                action={action}
+                value={targetValues[z.key]}
+                onChange={(v) => setTargetValues((prev) => ({ ...prev, [z.key]: v }))}
+              />
+            ))}
+          {invalidTargets.length > 0 && (
+            <Alert
+              type="warning"
+              title={l("所选域名不支持此操作、记录类型或 TTL。", "This action, record type or TTL is unavailable for the selected zones.")}
+              description={invalidTargets.map((z) => z.label).join(", ")}
+            />
           )}
-          {!["patch", "status", "group", "delete"].includes(action) && (
+          {!["patch", "replace", "status", "group", "line", "delete"].includes(action) && (
             <Input
               aria-label={actionLabel(action, l)}
               value={value}
@@ -261,12 +390,7 @@ export default function RecordSelection({
               onChange={(e) => setValue(e.target.value)}
             />
           )}
-          <Button
-            type="primary"
-            loading={busy}
-            disabled={!count || invalidValue || (action === "group" && (chosen.length !== 1 || !groups?.data?.some((g) => g.id === value)))}
-            onClick={build}
-          >
+          <Button type="primary" loading={busy} disabled={!count || invalidValue || !!invalidTargets.length} onClick={build}>
             {l("预览所选变更", "Preview selected changes")}
           </Button>
         </Space>

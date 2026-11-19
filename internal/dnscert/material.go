@@ -5,14 +5,39 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
+	"encoding/asn1"
 	"encoding/pem"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/certimate-go/certimate/internal/domain"
 	"github.com/pocketbase/pocketbase/core"
 )
+
+// MatchesOrderDomain reports whether a leaf identifies only the single DNS name
+// authorized by a commercial order. Parsing the SAN extension also accounts
+// for GeneralName variants that crypto/x509 does not expose.
+func MatchesOrderDomain(leaf *x509.Certificate, domain string) bool {
+	if leaf == nil || leaf.IsCA || len(leaf.DNSNames) != 1 || !strings.EqualFold(leaf.DNSNames[0], domain) ||
+		len(leaf.IPAddresses)+len(leaf.EmailAddresses)+len(leaf.URIs) != 0 ||
+		(leaf.Subject.CommonName != "" && !strings.EqualFold(leaf.Subject.CommonName, domain)) {
+		return false
+	}
+	if canonical, err := canonicalDomain(domain); err != nil || !strings.EqualFold(domain, canonical) {
+		return false
+	}
+	for _, ext := range leaf.Extensions {
+		if ext.Id.Equal(asn1.ObjectIdentifier{2, 5, 29, 17}) {
+			var names []asn1.RawValue
+			rest, err := asn1.Unmarshal(ext.Value, &names)
+			return err == nil && len(rest) == 0 && len(names) == 1 &&
+				names[0].Class == asn1.ClassContextSpecific && names[0].Tag == 2 && !names[0].IsCompound
+		}
+	}
+	return false
+}
 
 // Rebuild public PEM from parsed certificate DER. An unexpected block or PEM
 // header in a provider response must never reach a downloadable public chain.
@@ -47,7 +72,12 @@ func validateMaterial(req OrderRequest, material Material) (*domain.Certificate,
 	}
 
 	now := time.Now()
-	if leaf == nil || leaf.IsCA || leaf.VerifyHostname(req.Domain) != nil || now.Before(leaf.NotBefore) || now.After(leaf.NotAfter) {
+	if !MatchesOrderDomain(leaf, req.Domain) || now.Before(leaf.NotBefore) || !now.Before(leaf.NotAfter) ||
+		len(leaf.UnhandledCriticalExtensions) != 0 {
+		return nil, errProvider
+	}
+	const tlsKeyUsages = x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment | x509.KeyUsageKeyAgreement
+	if leaf.KeyUsage != 0 && leaf.KeyUsage&tlsKeyUsages == 0 {
 		return nil, errProvider
 	}
 	if len(leaf.ExtKeyUsage)+len(leaf.UnknownExtKeyUsage) > 0 &&

@@ -1,6 +1,7 @@
 package dnsmcp
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/mail"
@@ -12,6 +13,9 @@ import (
 	"unicode"
 
 	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/certimate-go/certimate/internal/certacme"
+	"github.com/certimate-go/certimate/internal/domain"
 )
 
 // Keep only account parameters here. File paths, commands and deployment targets
@@ -24,7 +28,7 @@ type certAccountSpec struct {
 var issuerAccountSpecs = map[string]certAccountSpec{
 	"letsencrypt": {"letsencrypt", "email", "mode", nil},
 	"zerossl":     {"zerossl", "email", "eabMode eabKid eabHmacKey", eabAliases()},
-	"google":      {"googletrustservices", "email eabKid eabHmacKey", "eabMode", eabAliases()},
+	"google":      {"googletrustservices", "email", "mode eabMode eabKid eabHmacKey projectId serviceAccountKey", eabAliases()},
 	"litessl":     {"litessl", "email eabKid eabHmacKey", "", eabAliases()},
 	"customacme":  {"acmeca", "endpoint email", "eabKid eabHmacKey", map[string]string{"directory": "endpoint", "kid": "eabKid", "key": "eabHmacKey"}},
 	"tencent":     {"tencentcloud", "secretId secretKey email", "projectId", nil},
@@ -35,8 +39,9 @@ var issuerAccountSpecs = map[string]certAccountSpec{
 func eabAliases() map[string]string { return map[string]string{"kid": "eabKid", "key": "eabHmacKey"} }
 
 var deploymentAccountSpecs = map[string]certAccountSpec{
+	"amh":               {"amh", "serverUrl username password", "", nil},
 	"btpanel":           {"baotapanel", "serverUrl apiKey", "", map[string]string{"key": "apiKey"}},
-	"btwin":             {"baotapanel", "serverUrl apiKey", "", map[string]string{"key": "apiKey"}},
+	"btwin":             {"baotapanelgo", "serverUrl apiKey", "", map[string]string{"key": "apiKey"}},
 	"kangle":            {"kangle", "serverUrl username", "password securityKey", map[string]string{"skey": "securityKey"}},
 	"kangleadmin":       {"kangleadmin", "serverUrl username securityKey", "adminPath", map[string]string{"skey": "securityKey", "path": "adminPath"}},
 	"safeline":          {"safeline", "serverUrl apiToken", "", map[string]string{"token": "apiToken"}},
@@ -56,6 +61,7 @@ var deploymentAccountSpecs = map[string]certAccountSpec{
 	"synology":          {"synologydsm", "serverUrl username password", "totpSecret", nil},
 	"lucky":             {"lucky", "serverUrl apiToken", "", map[string]string{"opentoken": "apiToken"}},
 	"fnos":              {"fnos", "host port username password hostKeyFingerprint", "", nil},
+	"iis":               {"iis", "host username password hostKeyFingerprint", "port", nil},
 	"nginxproxymanager": {"nginxproxymanager", "serverUrl username password", "", map[string]string{"email": "username"}},
 	"proxmox":           {"proxmoxve", "serverUrl apiToken apiTokenSecret", "", map[string]string{"api_user": "apiToken", "api_key": "apiTokenSecret"}},
 	"k8s":               {"k8s", "kubeConfig", "", nil},
@@ -117,6 +123,15 @@ func certAccountInputSchemas(deploy bool) map[string]object {
 				typ = "integer"
 			}
 			inputs[field] = object{"type": typ, "required": slices.Contains(strings.Fields(s.required), field)}
+		}
+		if kind == "google" && !deploy {
+			inputs["mode"].(object)["enum"] = []string{"live", "staging"}
+			inputs["eabMode"].(object)["enum"] = []string{"manual", "auto"}
+			for _, field := range []string{"eabKid", "eabHmacKey"} {
+				inputs[field].(object)["description"] = "Required for manual EAB (the default)."
+			}
+			inputs["projectId"].(object)["description"] = "Google Cloud project ID. Required for automatic EAB."
+			inputs["serviceAccountKey"].(object)["description"] = "Google service account key JSON as a string. Required for automatic EAB."
 		}
 		row := object{"type": kind, "name": kind, "nativeProvider": s.native, "inputs": inputs}
 		if deploy {
@@ -255,7 +270,7 @@ func (s certAccountSpec) configure(cfg, patch object) (string, *opError) {
 				return "", invalid
 			}
 		case "eabMode":
-			if raw != "manual" && !(s.native == "zerossl" && raw == "auto") {
+			if raw != "manual" && !((s.native == "zerossl" || s.native == "googletrustservices") && raw == "auto") {
 				return "", unsupported
 			}
 		case "authMethod":
@@ -273,7 +288,7 @@ func (s certAccountSpec) configure(cfg, patch object) (string, *opError) {
 				return "", invalid
 			}
 		}
-		if key != "kubeConfig" && key != "key" && strings.IndexFunc(raw, unicode.IsControl) >= 0 {
+		if key != "kubeConfig" && key != "key" && key != "serviceAccountKey" && strings.IndexFunc(raw, unicode.IsControl) >= 0 {
 			return "", invalid
 		}
 		// Redirecting an existing credential can disclose private material at its next use.
@@ -315,6 +330,25 @@ func (s certAccountSpec) configure(cfg, patch object) (string, *opError) {
 	}
 	for _, k := range strings.Fields(s.required) {
 		if cfg[k] == nil || cfg[k] == "" {
+			return "", invalid
+		}
+	}
+	if native == "googletrustservices" {
+		inactive := []string{"projectId", "serviceAccountKey"}
+		if str(cfg, "eabMode") == "auto" {
+			inactive = []string{"eabKid", "eabHmacKey"}
+		} else if str(cfg, "eabKid") == "" || str(cfg, "eabHmacKey") == "" {
+			return "", invalid
+		}
+		for _, field := range inactive {
+			if seen[field] && str(cfg, field) != "" {
+				return "", invalid
+			}
+			delete(cfg, field)
+		}
+		if _, err := certacme.CreateACMEConfig(context.Background(), &certacme.ACMEConfigOptions{
+			CAProvider: domain.CAProviderTypeGoogleTrustServices, CAProviderAccessConfig: cfg,
+		}); err != nil {
 			return "", invalid
 		}
 	}

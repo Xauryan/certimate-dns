@@ -157,9 +157,9 @@ const ConsoleLayout = () => {
                 <AppLocale.Dropdown>
                   <Button icon={<AppLocale.Icon size="1.25em" stroke="1.25" />} />
                 </AppLocale.Dropdown>
-                <AppVersion.Badge>
+                <AppVersion>
                   <Button icon={<IconBrandGithub size="1.25em" stroke="1.25" />} onClick={handleGitHubClick} />
-                </AppVersion.Badge>
+                </AppVersion>
                 <Button danger icon={<IconPower size="1.25em" stroke="1.25" />} onClick={handleLogoutClick} />
               </div>
             </div>
@@ -218,7 +218,7 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
           <img src={withBasePath("/logo.svg")} className="size-[36px]" />
           <Show when={!collapsed}>
             <span className="w-[81px] truncate text-base leading-[64px] font-semibold">Certimate</span>
-            <AppVersion.LinkButton className="text-xs" />
+            <AppVersion className="text-xs" />
           </Show>
         </div>
       </div>

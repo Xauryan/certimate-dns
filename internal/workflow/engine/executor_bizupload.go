@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rsa"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -51,6 +52,11 @@ func (ne *bizUploadNodeExecutor) Execute(execCtx *NodeExecutionContext) (*NodeEx
 	execRes := newNodeExecutionResult(execCtx.Node)
 
 	nodeCfg := execCtx.Node.Data.Config.AsBizUpload()
+	switch nodeCfg.Source {
+	case BizUploadSourceInventory, BizUploadSourceForm, BizUploadSourceLocal, BizUploadSourceURL:
+	default:
+		return execRes, errors.New("unsupported certificate input source")
+	}
 	ne.logger.Info("reading certificate input", slog.String("source", nodeCfg.Source))
 
 	// An inventory reference belongs to its original issuer or workflow. Resolve
@@ -58,7 +64,10 @@ func (ne *bizUploadNodeExecutor) Execute(execCtx *NodeExecutionContext) (*NodeEx
 	if nodeCfg.Source == BizUploadSourceInventory {
 		certificate, err := ne.certificateRepo.GetById(execCtx.Context(), nodeCfg.CertificateID)
 		if err != nil {
-			return execRes, fmt.Errorf("could not load inventory certificate: %w", err)
+			if ctxErr := execCtx.Context().Err(); ctxErr != nil {
+				return execRes, ctxErr
+			}
+			return execRes, errors.New("could not load inventory certificate")
 		}
 		if err := validateInventoryCertificate(certificate, time.Now()); err != nil {
 			return execRes, err
@@ -145,8 +154,6 @@ func (ne *bizUploadNodeExecutor) Execute(execCtx *NodeExecutionContext) (*NodeEx
 			}
 		}
 
-	default:
-		return execRes, fmt.Errorf("unsupported upload source: '%s'", nodeCfg.Source)
 	}
 
 	// 二次检测是否可以跳过执行

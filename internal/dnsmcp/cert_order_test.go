@@ -164,7 +164,13 @@ func TestCertificateAccountMCPRequiresAccountScopeAfterCreation(t *testing.T) {
 		}
 		return out.Result.StructuredContent
 	}
-	call(creator, "cert_account_manage", fields{"action": "add", "deploy": 1, "type": "amh", "name": "Unsupported target", "config": fields{}}, true)
+	call(creator, "cert_account_manage", fields{"action": "add", "deploy": 1, "type": "amh", "name": "Legacy AMH account", "config": fields{"url": "https://panel.example.test", "apikey": "synthetic-account-secret"}}, true)
+	call(creator, "cert_account_manage", fields{"action": "add", "deploy": 1, "type": "amh", "name": "Scoped AMH account", "config": fields{"url": "https://panel.example.test", "username": "fixture-user", "password": "synthetic-account-secret"}}, false)
+	iisConfig := fields{"host": "win.example.test", "username": "fixture-user", "password": "synthetic-account-secret", "hostKeyFingerprint": "SHA256:" + strings.Repeat("A", 43)}
+	iisInput := fields{"action": "add", "deploy": 1, "type": "iis", "name": "Scoped IIS helper", "config": iisConfig}
+	call(creator, "cert_account_manage", iisInput, false)
+	iisConfig["command"] = "unsupported"
+	call(creator, "cert_account_manage", iisInput, true)
 	created := call(creator, "cert_account_manage", fields{"action": "add", "type": "aliyun", "name": "Synthetic issuer", "config": fields{"accessKeyId": "synthetic-account-id", "accessKeySecret": "synthetic-account-secret"}}, false)
 	id, ok := created["id"].(string)
 	if !ok || id == "" {

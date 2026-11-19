@@ -105,24 +105,12 @@ func (p *provider) DNSRecords(ctx context.Context, zone string, page int, filter
 			return nil, errors.New("invalid dynv6 record response")
 		}
 		seen[r.ID] = true
-		name := strings.TrimSuffix(r.Name, ".")
-		if _, err := dnsutil.RelativeName(name, z); err != nil || name == "@" {
-			if strings.HasSuffix(r.Name, ".") {
-				return nil, registrarutil.ErrInventory
-			}
-			name = dnsutil.FullName(name, z)
+		rec, err := recordView(r, z)
+		if err != nil {
+			return nil, err
 		}
-		content := r.Data
-		switch r.Type {
-		case "SRV":
-			content = fmt.Sprintf("%d %d %d %s", r.Priority, r.Weight, r.Port, r.Data)
-		case "MX":
-			content = fmt.Sprintf("%d %s", r.Priority, r.Data)
-		case "CAA":
-			content = registrarutil.FormatCAA(r.Flags, r.Tag, r.Data)
-		}
-		if strings.Contains(strings.ToLower(name), strings.ToLower(filter)) {
-			items = append(items, dns.DNSRecord{ID: strconv.FormatInt(r.ID, 10), Name: name, Type: r.Type, Priority: dnsutil.MXPriority(r.Type, content), Content: content, TTL: displayTTL, Line: "default", Status: "active"})
+		if strings.Contains(strings.ToLower(rec.Name), strings.ToLower(filter)) {
+			items = append(items, rec)
 		}
 	}
 	return dnsutil.SlicePage(items, page)
@@ -272,4 +260,24 @@ func (p *provider) DeleteDNSRecord(ctx context.Context, zone, id string) (string
 		return "", err
 	}
 	return id, nil
+}
+
+func recordView(r sdk.DNSRecord, z string) (dns.DNSRecord, error) {
+	name := strings.TrimSuffix(r.Name, ".")
+	if _, err := dnsutil.RelativeName(name, z); err != nil || name == "@" {
+		if strings.HasSuffix(r.Name, ".") {
+			return dns.DNSRecord{}, registrarutil.ErrInventory
+		}
+		name = dnsutil.FullName(name, z)
+	}
+	content := r.Data
+	switch r.Type {
+	case "SRV":
+		content = fmt.Sprintf("%d %d %d %s", r.Priority, r.Weight, r.Port, r.Data)
+	case "MX":
+		content = fmt.Sprintf("%d %s", r.Priority, r.Data)
+	case "CAA":
+		content = registrarutil.FormatCAA(r.Flags, r.Tag, r.Data)
+	}
+	return dns.DNSRecord{ID: strconv.FormatInt(r.ID, 10), Name: name, Type: r.Type, Priority: dnsutil.MXPriority(r.Type, content), Content: content, TTL: displayTTL, Line: "default", Status: "active"}, nil
 }

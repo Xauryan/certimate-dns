@@ -76,7 +76,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	}
 	dir := fs.String("dir", "", "existing migrated Certimate data directory")
 	path := fs.String("in", "", "manifest path")
-	bindings := fs.String("bindings", "", "account bindings JSON")
+	bindings := fs.String("bindings", "", "account bindings and optional confirmed promotions JSON")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -119,7 +119,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		}
 		defer app.ResetBootstrapState()
 		report, err = dnsmigrate.Apply(ctx, app, &m, b)
-		if err != nil && !errors.Is(err, dnsmigrate.ErrConflict) {
+		if err != nil && (!errors.Is(err, dnsmigrate.ErrConflict) || report == nil || report.Conflicts == 0) {
 			return errors.New("database import failed; no inventory changes committed")
 		}
 	}

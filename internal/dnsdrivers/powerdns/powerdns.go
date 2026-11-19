@@ -136,6 +136,14 @@ func display(typ, raw string) string {
 		if str, ok := plainTXT(raw); ok {
 			return str
 		}
+	case "MX":
+		fields := strings.Fields(raw)
+		if len(fields) == 2 {
+			if fields[1] == "." {
+				return "."
+			}
+			return u.Name(fields[1])
+		}
 	case "CNAME", "NS", "PTR", "DNAME", "ALIAS":
 		return u.Name(raw)
 	}

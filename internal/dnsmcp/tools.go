@@ -3,10 +3,11 @@ package dnsmcp
 import (
 	_ "embed"
 	"encoding/json"
-	"github.com/pocketbase/pocketbase/core"
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/pocketbase/pocketbase/core"
 )
 
 type operation struct{ name, permission string }
@@ -119,6 +120,12 @@ func toolSchemas(grant scope, actor *core.Record) []object {
 				kind = "boolean"
 			}
 			properties[field] = object{"type": kind}
+		}
+		if tool.name == "record_query" && slices.Contains(permitted, "list") {
+			properties["native_records"] = object{"type": "integer", "enum": []int{1}, "description": "Include each record's native snapshot in Native."}
+		}
+		if tool.name == "record_manage" && slices.Contains(permitted, "update") {
+			properties["expected"] = object{"type": "object", "description": "Optional native snapshot returned by record_query(list) for a conditional record update."}
 		}
 		schema := object{"type": "object", "properties": properties}
 		if len(required) > 0 {

@@ -48,6 +48,11 @@ jobs:
           npm --prefix tests/browser test
       - name: Build Linux binary
         run: go build -mod=readonly -trimpath -ldflags="-s -w" -o "$RUNNER_TEMP/certimate" .
+      - name: Cross-build Windows IIS certificate binding helper
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -mod=readonly -o "$RUNNER_TEMP/certimate-iis-bind.exe" ./cmd/certimate-iis-bind
       - name: Run offline Go tests
         shell: bash
         run: |

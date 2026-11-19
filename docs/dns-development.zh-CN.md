@@ -18,6 +18,16 @@ CGO_ENABLED=0 go build -mod=readonly -trimpath -o dist/certimate .
 
 浏览器打开 http://127.0.0.1:8090/ 。健康检查在 /api/health。CI 在 GitHub 托管的标准 ubuntu-26.04 x64 机器上构建相同的前端和 Go 可执行文件。进程测试打开临时空库，并从 v0.4.38 的数据库升级后检查会话、工作流、跨域权限、批量变更及重启恢复。CI 的权限为读取仓库内容，测试使用本地数据。
 
+## 安装、升级与回退
+
+**首次安装。** 从 [Certimate DNS Releases](https://github.com/Xauryan/certimate-dns/releases) 选择对应系统和架构的发行包，核对发行附带的校验值。发行页没有可用构建时，按上文从 Certimate DNS 源码构建。用稳定的数据目录启动，例如 `./certimate serve --dir ./pb_data --http 127.0.0.1:8090`。首次启动前通过服务环境设置 `CERTIMATE_ADMIN_USERNAME` 和 `CERTIMATE_ADMIN_PASSWORD`，空库迁移会用它们初始化管理员。服务启动后访问 `/api/health`，再登录管理台。容器安装从仓库根目录执行 `docker compose -f docker/docker-compose.yml up -d --build`，样例从当前源码构建，数据保存在 `docker/data/`。
+
+**升级现有 Certimate 或 Certimate DNS。** 目前进程测试覆盖的是从 Certimate v0.4.38 原库升级。取得目标 Certimate DNS 版本的二进制或构建容器镜像。停止旧实例，保留旧程序或镜像并完整备份现有 `--dir` 目录，包括隐藏文件和存储目录。使用 PocketBase `--encryptionEnv` 时，保留原环境里的加密密钥。启动新版本时沿用原数据目录、加密配置和监听配置，PocketBase 在启动时执行迁移。检查 `/api/health` 和启动日志，并确认原账号、授权、证书工作流和已有 DNS 配置可以打开。容器升级沿用原数据卷或绑定目录。
+
+**回退。** 停止升级后的实例，用升级前的完整备份恢复数据目录，再启动相应的旧程序或镜像。迁移彩虹 DNS 的 MySQL 数据时，按[迁移指南](dnsmgr-migration.zh-CN.md)另行导入。
+
+管理台只检查 Certimate DNS 仓库发布的稳定版，提示指向对应的发行包页面。准备发布时，将 `internal/app/app.go` 中的 `AppVersion` 与 `vX.Y.Z` 发行标签对应，保证构建内嵌版本与发行版一致。站点后台任务随主进程运行，设置中的「诊断」提供日志及 Certimate 工作流调度统计。
+
 ## 使用 Cloudflare DNS 管理
 
 管理员进入「DNS 解析管理」，选择已有的 Cloudflare 授权，再点击域名。Zone 与记录按服务商分页，记录名搜索在服务端执行。读取 Zone 需要 Zone Read，读取和导出记录需要 DNS Read，写入需要相应 Zone 的 DNS Edit 权限。配置了独立 Zone token 时，域名枚举使用该 token，记录操作使用主 token。

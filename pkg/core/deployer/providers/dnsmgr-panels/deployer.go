@@ -24,7 +24,7 @@ type panel struct {
 	provider                   string
 	baseURL                    *url.URL
 	username, password, secret string
-	adminPath                  string
+	adminPath, environment     string
 	targets, domains           []string
 	client                     *http.Client
 }
@@ -112,6 +112,11 @@ func New(provider string, access, config map[string]any) (core.Deployer, error) 
 				return nil, err
 			}
 		}
+	case "amh":
+		p.environment = strings.TrimSpace(field(config, "environment"))
+		if p.username == "" || p.password == "" || !amhEnvironment.MatchString(p.environment) {
+			return nil, errors.New("AMH requires a username, password and deployment environment")
+		}
 	case "cloudpanel", "directadmin":
 		if p.username == "" || p.password == "" {
 			return nil, errors.New("panel username and password are required")
@@ -145,6 +150,8 @@ func (p *panel) Deploy(ctx context.Context, cert, key string) (*core.DeployerDep
 	}
 	session.client = &client
 	switch p.provider {
+	case "amh":
+		err = session.deployAMH(ctx, cert, key)
 	case "directadmin":
 		err = session.deployDirectAdmin(ctx, cert, key, pair.PrivateKey)
 	case "cloudpanel":

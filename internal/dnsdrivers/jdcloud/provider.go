@@ -236,10 +236,7 @@ func (p *provider) DNSRecords(ctx context.Context, zone string, page int, filter
 	}
 	out := dnsutil.Page[dns.DNSRecord](page, *data.TotalCount)
 	for _, r := range data.DataList {
-		if r.Id < 1 || r.Type == "" || len(r.ViewValue) == 0 {
-			return nil, errResponse
-		}
-		out.Items = append(out.Items, dns.DNSRecord{Priority: r.Preference, ID: strconv.Itoa(r.Id), Name: dnsutil.FullName(r.HostRecord, z.DomainName), Type: r.Type, TTL: r.Ttl, Line: strconv.Itoa(r.ViewValue[len(r.ViewValue)-1]), Weight: r.NativeWeight, Content: recordContent(r.RRInfo), Status: recordStatus(r.Status.String())})
+		out.Items = append(out.Items, r.row(z.DomainName))
 	}
 	return out, nil
 }
@@ -463,10 +460,11 @@ func (p *provider) BatchAttribute(ctx context.Context, zone, id, field string) (
 	case "line":
 		return strconv.Itoa(r.ViewValue[len(r.ViewValue)-1]), nil
 	case "weight":
-		if r.NativeWeight == nil {
+		weight := r.routingWeight()
+		if weight == nil {
 			return "", nil
 		}
-		return strconv.Itoa(*r.NativeWeight), nil
+		return strconv.Itoa(*weight), nil
 	case "status":
 		s := recordStatus(r.Status.String())
 		if s == "enabled" || s == "disabled" {
@@ -515,4 +513,17 @@ func (p *provider) SetBatchAttribute(ctx context.Context, zone, id, field, value
 	}
 	_, err = p.update(ctx, zone, id, z, r, host, r.Ttl, priority, weight, port)
 	return err
+}
+
+func (r wireRecord) routingWeight() *int {
+	switch r.Type {
+	case "A", "AAAA", "CNAME", "JNAME":
+		return r.NativeWeight
+	default:
+		return nil
+	}
+}
+
+func (r wireRecord) row(zone string) dns.DNSRecord {
+	return dns.DNSRecord{Priority: r.Preference, ID: strconv.Itoa(r.Id), Name: dnsutil.FullName(r.HostRecord, zone), Type: r.Type, TTL: r.Ttl, Line: strconv.Itoa(r.ViewValue[len(r.ViewValue)-1]), Weight: r.routingWeight(), Content: recordContent(r.RRInfo), Status: recordStatus(r.Status.String())}
 }

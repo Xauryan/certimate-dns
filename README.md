@@ -6,8 +6,7 @@
 
 [![Stars](https://img.shields.io/github/stars/certimate-go/certimate?style=flat)](https://github.com/certimate-go/certimate)
 [![Forks](https://img.shields.io/github/forks/certimate-go/certimate?style=flat)](https://github.com/certimate-go/certimate)
-[![Docker Pulls](https://img.shields.io/docker/pulls/certimate/certimate?style=flat)](https://hub.docker.com/r/certimate/certimate)
-[![Release](https://img.shields.io/github/v/release/certimate-go/certimate?style=flat&sort=semver)](https://github.com/certimate-go/certimate/releases)
+[![Certimate DNS Release](https://img.shields.io/github/v/release/Xauryan/certimate-dns?style=flat&sort=semver)](https://github.com/Xauryan/certimate-dns/releases)
 [![License](https://img.shields.io/github/license/certimate-go/certimate?style=flat)](https://mit-license.org/)
 
 </div>
@@ -59,43 +58,11 @@ An open-source and free self-hosted SSL certificates ACME tool, automates the fu
 
 ## 🚀 Quick Start
 
-**Run Certimate in 1 minute!**
+Download the package for your platform from [Certimate DNS Releases](https://github.com/Xauryan/certimate-dns/releases) or [build from the fork's source](docs/dns-development.zh-CN.md). Set `CERTIMATE_ADMIN_USERNAME` and `CERTIMATE_ADMIN_PASSWORD` in the service environment before initializing an empty database.
 
-<details>
-<summary>👉 Binary Installation: </summary>
+Run `./certimate serve --dir ./pb_data --http 127.0.0.1:8090` and open `http://127.0.0.1:8090` in your browser. The Compose sample builds the fork from source with `docker compose -f docker/docker-compose.yml up -d --build` and stores data in `docker/data/`.
 
-Download the archived package of precompiled executable files directly from [GitHub Releases](https://github.com/certimate-go/certimate/releases), extract and then execute:
-
-```bash
-./certimate serve
-```
-
-</details>
-
-<details>
-<summary>👉 Docker Installation: </summary>
-
-```bash
-docker run -d \
-  --name certimate \
-  --restart unless-stopped \
-  -p 8090:8090 \
-  -v /etc/localtime:/etc/localtime:ro \
-  -v /etc/timezone:/etc/timezone:ro \
-  -v $(pwd)/data:/app/pb_data \
-  certimate/certimate:latest
-```
-
-</details>
-
-Visit `http://127.0.0.1:8090` in your browser.
-
-Default administrator account:
-
-- Username: `admin@certimate.fun`
-- Password: `1234567890`
-
-Work with Certimate right now. Or read other content in the documentation to learn more.
+See the [installation and upgrade guide](docs/dns-development.zh-CN.md#安装升级与回退) for backing up the existing data directory, applying migrations and rolling back.
 
 ## 📄 Documentation
 

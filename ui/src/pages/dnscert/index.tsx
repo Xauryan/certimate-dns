@@ -4,6 +4,7 @@ import { Alert, App, Button, Empty, Space, Table, Tag, Typography } from "antd";
 import { ClientResponseError } from "pocketbase";
 
 import { unwrapErrMsg } from "@/utils/error";
+import BatchOrderActions from "./BatchOrderActions";
 import DraftForm, { type FormValues } from "./DraftForm";
 import OrderHistory from "./OrderHistory";
 import OrderNotification from "./OrderNotification";
@@ -15,6 +16,8 @@ export default function CertificateOrders() {
   const label = useLabel();
   const { message } = App.useApp();
   const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<React.Key[]>([]);
+  const [renewalRevision, setRenewalRevision] = useState(0);
   const accounts = useResource<{ items: Account[] }>("/accounts");
   const orders = useResource<Page<Order>>("/orders?page=" + page);
   const [editing, setEditing] = useState<Order & { request: Omit<FormValues, "accessId"> }>();
@@ -125,7 +128,7 @@ export default function CertificateOrders() {
         )}
         <OrderHistory key={order.id + "-" + order.version} orderId={order.id} />
         <OrderNotification orderId={order.id} />
-        {order.certificateId && <RenewalSettings key={order.id} order={order} />}
+        {order.certificateId && <RenewalSettings key={order.id + "-" + renewalRevision} order={order} />}
         {order.certificateId && (
           <Link to={"/certificates?keyword=" + encodeURIComponent(order.certificateId)}>{label("View or download certificate", "查看或下载证书")}</Link>
         )}
@@ -149,6 +152,15 @@ export default function CertificateOrders() {
         >
           {label("New order", "新建订单")}
         </Button>
+        <BatchOrderActions
+          selected={(orders.data?.items ?? []).filter((o) => selected.includes(o.id))}
+          disabled={!!busy || orders.loading || !!orders.error}
+          finish={(completed) => {
+            setSelected((ids) => ids.filter((id) => !completed.includes(String(id))));
+            setRenewalRevision((n) => n + 1);
+            orders.refresh();
+          }}
+        />
         <Button onClick={refresh} loading={orders.loading || accounts.loading}>
           {label("Refresh list", "刷新列表")}
         </Button>
@@ -171,11 +183,21 @@ export default function CertificateOrders() {
       {error && !dialog && <Alert type="error" showIcon title={error} />}
       <Table<Order>
         rowKey="id"
+        rowSelection={{ selectedRowKeys: selected, onChange: setSelected }}
         dataSource={orders.data?.items ?? []}
         loading={orders.loading}
         scroll={{ x: 800 }}
         locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={label("No certificate orders", "暂无证书订单")} /> }}
-        pagination={{ current: page, pageSize: 20, showSizeChanger: false, total: orders.data?.total ?? 0, onChange: setPage }}
+        pagination={{
+          current: page,
+          pageSize: 20,
+          showSizeChanger: false,
+          total: orders.data?.total ?? 0,
+          onChange: (p) => {
+            setSelected([]);
+            setPage(p);
+          },
+        }}
         expandable={{ expandedRowRender: details }}
         columns={[
           {

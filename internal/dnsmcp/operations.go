@@ -141,6 +141,7 @@ func (s service) execute(e *core.RequestEvent, tool string, args object) (object
 	if tool == "domain_query" {
 		lines := []dns.RecordLine{}
 		ttl := 1
+		var recordEdit *dns.RecordEditCapabilities
 		if details, ok := p.(interface {
 			ZoneDetails(context.Context, string) (*dns.ZoneDetails, error)
 		}); ok {
@@ -152,6 +153,7 @@ func (s service) execute(e *core.RequestEvent, tool string, args object) (object
 				lines = info.Lines
 			}
 			ttl = max(ttl, info.MinTTL)
+			recordEdit = info.RecordEdit
 		}
 		fields := []string{}
 		if meta, ok := p.(dnsbatch.Metadata); ok {
@@ -159,6 +161,14 @@ func (s service) execute(e *core.RequestEvent, tool string, args object) (object
 		}
 		alias := slices.Contains([]string{"powerdns", "henet", "spaceship"}, z.Provider)
 		caps := object{"type": legacyAccountType(z.Provider), "weight": slices.Contains(fields, "weight"), "remark": slices.Contains(fields, "remark"), "alias": alias, "attributes": fields}
+		if recordEdit == nil {
+			edit, err := dns.RecordEditCapabilitiesForZone(e.Request.Context(), p, z.ZoneID)
+			if err != nil {
+				return nil, upstream
+			}
+			recordEdit = &edit
+		}
+		caps["recordEdit"], caps["nativeRecords"] = recordEdit, true
 		if action == "quickinfo" {
 			data = caps
 		} else {

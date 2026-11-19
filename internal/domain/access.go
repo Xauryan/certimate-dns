@@ -342,6 +342,10 @@ type AccessConfigForGoogleCloud struct {
 
 type AccessConfigForGoogleTrustServices struct {
 	AccessConfigForACMEExternalAccountBinding
+	Mode              string `json:"mode,omitempty"`
+	EABMode           string `json:"eabMode,omitempty"`
+	ProjectID         string `json:"projectId,omitempty"`
+	ServiceAccountKey string `json:"serviceAccountKey,omitempty"`
 }
 
 type AccessConfigForHetzner struct {

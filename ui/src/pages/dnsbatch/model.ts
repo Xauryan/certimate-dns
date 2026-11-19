@@ -5,9 +5,17 @@ import { type DNSRecord, type Zone, dnsRequest } from "@/api/dns";
 import { unwrapErrMsg } from "@/utils/error";
 import type { BatchFileCapabilities } from "./files.rows";
 
-export type BatchZone = Zone & { canWrite?: boolean };
+export type BatchZone = Zone & { canWrite?: boolean; provider: string; accessId: string; key: string; label: string };
+export type ZoneInput = Zone & { canWrite?: boolean; provider?: string; accessId?: string };
+export function targetZone(zone: ZoneInput, base: string): BatchZone {
+  const provider = zone.provider ?? decodeURIComponent(base.split("/")[3]);
+  const accessId = zone.accessId ?? decodeURIComponent(base.split("/")[4]);
+  const key = "/api/dns/" + [provider, accessId].map(encodeURIComponent).join("/") + "/zones/" + encodeURIComponent(zone.id);
+  return { ...zone, provider, accessId, key, label: [zone.name, provider, accessId].join(" · ") };
+}
 export type BatchRecord = DNSRecord & { updatedAt?: string; status?: string; description?: string; priority?: number; weight?: number };
-export type Features = { capabilities: BatchFileCapabilities; fields: string[]; createLine?: boolean; groups: boolean; logs: boolean };
+type EditCapabilities = { rename: boolean; retype: boolean; priority: boolean };
+export type Features = { capabilities: BatchFileCapabilities; edit?: EditCapabilities; fields: string[]; createLine?: boolean; groups: boolean; logs: boolean };
 export type Group = { id: string; name: string };
 export type Change = {
   action: string;
@@ -24,7 +32,12 @@ export type Change = {
   status?: "disabled" | "enabled";
   group?: string;
 };
-export type PreviewRow = { before?: BatchRecord; change: Change; previousValue?: string };
+export type PreviewRow = {
+  before?: BatchRecord;
+  after?: Pick<BatchRecord, "name" | "type" | "content" | "ttl" | "priority">;
+  change: Change;
+  previousValue?: string;
+};
 export type Summary = { id: string; actor: string; state: string; created: number };
 export type Plan = Summary & { items: { id?: string; action: string; state: string }[] };
 export type Review = { batch?: string; zone: BatchZone; plan: Plan; rows: PreviewRow[] };
@@ -42,6 +55,7 @@ export function actionLabel(action: string, l: Label) {
   const names: Record<string, string> = {
     create: l("新增", "Create"),
     patch: l("改值或 TTL", "Edit value or TTL"),
+    replace: l("修改名称、类型或优先级", "Edit name, type or priority"),
     delete: l("删除", "Delete"),
     remark: l("修改备注", "Change remark"),
     line: l("修改线路", "Change line"),
@@ -69,8 +83,28 @@ export function stateLabel(state: string, l: Label) {
   return names[state] ?? state;
 }
 
-export function batchPath(base: string, zone: Zone) {
-  return base + "/zones/" + encodeURIComponent(zone.id) + "/batch";
+export type TargetFeatures = Record<string, Features>;
+export function useTargetFeatures(keys: string[], revision: number) {
+  const signature = JSON.stringify(keys);
+  const [result, setResult] = useState<{ signature: string; revision: number; features: TargetFeatures; errors: string[] }>();
+  useEffect(() => {
+    let live = true;
+    const scopes: string[] = JSON.parse(signature);
+    Promise.allSettled(scopes.map((scope) => dnsRequest<Features>(scope + "/batch/features"))).then((responses) => {
+      if (!live) return;
+      const features: TargetFeatures = {};
+      const errors: string[] = [];
+      responses.forEach((r, i) => {
+        if (r.status === "fulfilled") features[scopes[i]] = r.value;
+        else errors.push(scopes[i] + " · " + unwrapErrMsg(r.reason));
+      });
+      setResult({ signature, revision, features, errors });
+    });
+    return () => {
+      live = false;
+    };
+  }, [signature, revision]);
+  return result?.signature === signature && result.revision === revision ? result : undefined;
 }
 
 export function useData<T>(url: string | undefined, revision = 0) {

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -53,7 +54,10 @@ func (ne *bizDeployNodeExecutor) Execute(execCtx *NodeExecutionContext) (*NodeEx
 				certificate, err := ne.certificateRepo.GetById(execCtx.Context(), s[1])
 				if err != nil {
 					ne.logger.Warn("could not get input certificate")
-					return execRes, err
+					if ctxErr := execCtx.Context().Err(); ctxErr != nil {
+						return execRes, ctxErr
+					}
+					return execRes, errors.New("could not load deployment certificate")
 				}
 
 				inputCertificate = certificate

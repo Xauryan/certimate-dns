@@ -284,7 +284,7 @@ func (p *provider) DNSRecords(ctx context.Context, zone string, page int, filter
 		if !strings.Contains(strings.ToLower(name), strings.ToLower(filter)) && !strings.Contains(strings.ToLower(r.Value), strings.ToLower(filter)) {
 			continue
 		}
-		rows = append(rows, dns.DNSRecord{ID: r.ID, Name: name, Type: r.Type, Content: r.Value, TTL: r.TTL, Line: r.Line, Status: r.Status, Description: r.Description, Priority: r.Priority})
+		rows = append(rows, r.view(name))
 	}
 	return dnsutil.SlicePage(rows, page)
 }

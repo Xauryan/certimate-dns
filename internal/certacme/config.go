@@ -21,6 +21,7 @@ type ACMEConfig struct {
 	CADirUrl   string
 	EABKid     string
 	EABHmacKey string
+	googleEAB  *googleEABProvider
 }
 
 func CreateACMEConfig(ctx context.Context, options *ACMEConfigOptions) (*ACMEConfig, error) {
@@ -49,13 +50,36 @@ func CreateACMEConfig(ctx context.Context, options *ACMEConfigOptions) (*ACMECon
 
 	acmeEab := domain.AccessConfigForACMEExternalAccountBinding{}
 	if err := xmaps.Populate(providerAccessCfg, &acmeEab); err != nil {
+		if provider == domain.CAProviderTypeGoogleTrustServices {
+			return nil, fmt.Errorf("invalid Google Public CA configuration")
+		}
 		return nil, err
 	}
 
-	return &ACMEConfig{
+	config := &ACMEConfig{
 		CAProvider: provider,
 		CADirUrl:   acmeDirUrl,
 		EABKid:     acmeEab.EabKid,
 		EABHmacKey: acmeEab.EabHmacKey,
-	}, nil
+	}
+	if provider == domain.CAProviderTypeGoogleTrustServices {
+		var credentials domain.AccessConfigForGoogleTrustServices
+		if err := xmaps.Populate(providerAccessCfg, &credentials); err != nil {
+			return nil, fmt.Errorf("invalid Google Public CA configuration")
+		}
+		switch credentials.EABMode {
+		case "", "manual":
+		case "auto":
+			if config.EABKid != "" || config.EABHmacKey != "" {
+				return nil, fmt.Errorf("automatic Google Public CA registration requires an empty manual EAB pair")
+			}
+			config.googleEAB, err = newGoogleEABProvider(credentials, acmeDirUrl)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			return nil, fmt.Errorf("invalid Google Public CA EAB mode")
+		}
+	}
+	return config, nil
 }

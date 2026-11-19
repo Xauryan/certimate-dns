@@ -11,6 +11,7 @@ import (
 
 func init() {
 	constructors := map[domain.DeploymentProviderType]func(string, map[string]any, map[string]any) (core.Deployer, error){
+		domain.DeploymentProviderTypeAMH:                panels.New,
 		domain.DeploymentProviderTypeCloudPanel:         panels.New,
 		domain.DeploymentProviderTypeDirectAdmin:        panels.New,
 		domain.DeploymentProviderTypeFNOS:               extra.New,

@@ -2,16 +2,21 @@ package baotapanelgo
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
+	"path"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/samber/lo"
 
+	"github.com/certimate-go/certimate/internal/iisbind"
 	"github.com/certimate-go/certimate/pkg/core"
 	btpanelgosdk "github.com/certimate-go/certimate/pkg/sdk3rd/btpanelgo"
 	xcert "github.com/certimate-go/certimate/pkg/utils/cert"
@@ -80,6 +85,12 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 		return nil, fmt.Errorf("config `siteNames` is required")
 	}
 
+	if d.config.SiteType == "iis-domain" {
+		if err := d.deployIISDomains(ctx, certPEM, privkeyPEM); err != nil {
+			return nil, err
+		}
+		return &DeployResult{}, nil
+	}
 	if d.config.SiteType != "" {
 		if !lo.Contains(btProjectTypes, d.config.SiteType) && !lo.Contains(btProjectTypesInIIS, d.config.SiteType) {
 			return nil, fmt.Errorf("unsupported site type: '%s'", d.config.SiteType)
@@ -121,7 +132,7 @@ func (d *Deployer) findSiteByName(ctx context.Context, siteType, siteName string
 				Limit:        lo.ToPtr(int32(datalistGetDataListLimit)),
 			}
 			datalistGetDataListResp, err := d.sdkClient.DatalistGetDataListWithContext(ctx, datalistGetDataListReq)
-			d.logger.Debug("sdk request 'datalist.GetDataList'", slog.Any("request", datalistGetDataListReq), slog.Any("response", datalistGetDataListResp))
+			d.logger.Debug("sdk request 'datalist.GetDataList'")
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute sdk request 'datalist.GetDataList': %w", err)
 			}
@@ -156,7 +167,7 @@ func (d *Deployer) findSiteByName(ctx context.Context, siteType, siteName string
 				Limit:        lo.ToPtr(int32(siteGetProjectListLimit)),
 			}
 			siteGetProjectListResp, err := d.sdkClient.SiteGetProjectListWithContext(ctx, siteGetProjectListReq)
-			d.logger.Debug("sdk request 'site.GetProjectList'", slog.Any("request", siteGetProjectListReq), slog.Any("response", siteGetProjectListResp))
+			d.logger.Debug("sdk request 'site.GetProjectList'")
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute sdk request 'site.GetProjectList': %w", err)
 			}
@@ -182,7 +193,7 @@ func (d *Deployer) updateSiteCertificate(ctx context.Context, siteType, siteName
 	// 获取面板配置
 	panelGetConfigReq := &btpanelgosdk.PanelGetConfigRequest{}
 	panelGetConfigResp, err := d.sdkClient.PanelGetConfigWithContext(ctx, panelGetConfigReq)
-	d.logger.Debug("sdk request 'panel.GetConfig'", slog.Any("request", panelGetConfigReq), slog.Any("response", panelGetConfigResp))
+	d.logger.Debug("sdk request 'panel.GetConfig'")
 	if err != nil {
 		return fmt.Errorf("failed to execute sdk request 'panel.GetConfig': %w", err)
 	}
@@ -194,45 +205,20 @@ func (d *Deployer) updateSiteCertificate(ctx context.Context, siteType, siteName
 	}
 
 	// 根据服务器类型部署证书
-	pfxRequried := panelGetConfigResp.Site != nil && strings.EqualFold(panelGetConfigResp.Site.WebServer, "iis")
-	if pfxRequried {
-		// 转换证书格式
-		certPFXPassword := "certimate"
-		certPFX, err := xcert.TransformCertificateFromPEMToPFX(certPEM, privkeyPEM, certPFXPassword, nil)
-		if err != nil {
-			return fmt.Errorf("failed to transform certificate from PEM to PFX: %w", err)
-		}
-
-		// 上传证书
-		certPFXHash := sha256.Sum256([]byte(certPFX))
-		certPFXHashHex := hex.EncodeToString(certPFXHash[:])
-		certPFXPath := panelGetConfigResp.Paths.Soft + "/temp/ssl/certimate"
-		certPFXFileName := fmt.Sprintf("%s.pfx", certPFXHashHex)
-		filesUploadReq := &btpanelgosdk.FilesUploadRequest{
-			Path:  lo.ToPtr(certPFXPath),
-			Name:  lo.ToPtr(certPFXFileName),
-			Start: lo.ToPtr(int32(0)),
-			Size:  lo.ToPtr(int32(len(certPFX))),
-			Blob:  certPFX,
-			Force: lo.ToPtr(true),
-		}
-		filesUploadResp, err := d.sdkClient.FilesUploadWithContext(ctx, filesUploadReq)
-		d.logger.Debug("sdk request 'files.Upload'", slog.Any("request", filesUploadReq), slog.Any("response", filesUploadResp))
-		if err != nil {
-			return fmt.Errorf("failed to execute sdk request 'files.Upload': %w", err)
-		}
-
-		// 服务器为 IIS，设置网站 SSL
-		siteSetSitePFXSSLReq := &btpanelgosdk.SiteSetSitePFXSSLRequest{
-			SiteId:   lo.ToPtr(siteData.Id),
-			PFX:      lo.ToPtr(fmt.Sprintf("%s/%s", certPFXPath, certPFXFileName)),
-			Password: lo.ToPtr(certPFXPassword),
-		}
-		siteSetSitePFXSSLResp, err := d.sdkClient.SiteSetSitePFXSSLWithContext(ctx, siteSetSitePFXSSLReq)
-		d.logger.Debug("sdk request 'site.SetSitePFXSSL'", slog.Any("request", siteSetSitePFXSSLReq), slog.Any("response", siteSetSitePFXSSLResp))
-		if err != nil {
-			return fmt.Errorf("failed to execute sdk request 'site.SetSitePFXSSL': %w", err)
-		}
+	pfxRequired := panelUsesIIS(panelGetConfigResp)
+	if pfxRequired {
+		return d.withPFX(ctx, panelGetConfigResp, certPEM, privkeyPEM, func(path, password string) error {
+			reply, err := d.sdkClient.SiteSetSitePFXSSLWithContext(ctx, &btpanelgosdk.SiteSetSitePFXSSLRequest{
+				SiteId: lo.ToPtr(siteData.Id), PFX: &path, Password: &password,
+			})
+			if err != nil {
+				return fmt.Errorf("install IIS site certificate: %w", err)
+			}
+			if !reply.Confirmed() {
+				return errors.New("panel did not confirm IIS site binding")
+			}
+			return nil
+		})
 	} else {
 		// 服务器非 IIS，设置网站 SSL
 		siteSetSiteSSLReq := &btpanelgosdk.SiteSetSiteSSLRequest{
@@ -241,14 +227,123 @@ func (d *Deployer) updateSiteCertificate(ctx context.Context, siteType, siteName
 			Key:    lo.ToPtr(privkeyPEM),
 			Cert:   lo.ToPtr(certPEM),
 		}
-		siteSetSiteSSLResp, err := d.sdkClient.SiteSetSiteSSLWithContext(ctx, siteSetSiteSSLReq)
-		d.logger.Debug("sdk request 'site.SetSiteSSL'", slog.Any("request", siteSetSiteSSLReq), slog.Any("response", siteSetSiteSSLResp))
+		_, err := d.sdkClient.SiteSetSiteSSLWithContext(ctx, siteSetSiteSSLReq)
+		d.logger.Debug("sdk request 'site.SetSiteSSL'")
 		if err != nil {
 			return fmt.Errorf("failed to execute sdk request 'site.SetSiteSSL': %w", err)
 		}
 	}
 
 	return nil
+}
+
+func panelUsesIIS(config *btpanelgosdk.PanelGetConfigResponse) bool {
+	if config.Site != nil && config.Site.WebServer != "" {
+		return strings.EqualFold(config.Site.WebServer, "iis")
+	}
+	return config.Config != nil && strings.EqualFold(config.Config.WebServer, "iis")
+}
+
+func (d *Deployer) deployIISDomains(ctx context.Context, certPEM, keyPEM string) error {
+	pair, err := (iisbind.Request{Target: d.config.SiteNames[0], Certificate: certPEM, PrivateKey: keyPEM}).Validate(time.Now())
+	if err != nil {
+		return err
+	}
+	names := slices.Clone(d.config.SiteNames)
+	seen := make(map[string]bool, len(names))
+	for i, name := range names {
+		host, _, err := iisbind.Target(name)
+		if err != nil || strings.Contains(name, ":") || seen[host] {
+			return errors.New("invalid IIS binding domain")
+		}
+		if pair.Leaf.VerifyHostname(host) != nil {
+			return errors.New("certificate does not cover every selected IIS binding")
+		}
+		seen[host] = true
+		names[i] = host
+	}
+	config, err := d.sdkClient.PanelGetConfigWithContext(ctx, &btpanelgosdk.PanelGetConfigRequest{})
+	if err != nil {
+		return fmt.Errorf("read IIS configuration: %w", err)
+	}
+	if !panelUsesIIS(config) {
+		return errors.New("selected panel does not report IIS as its web server")
+	}
+	return d.withPFX(ctx, config, certPEM, keyPEM, func(path, password string) error {
+		for i, name := range names {
+			if err := d.sdkClient.SetSiteDomainSSL(ctx, name, path, password); err != nil {
+				return fmt.Errorf("bind IIS domain %q (%d of %d confirmed): %w", name, i, len(names), err)
+			}
+		}
+		return nil
+	})
+}
+
+func (d *Deployer) withPFX(ctx context.Context, config *btpanelgosdk.PanelGetConfigResponse, certPEM, keyPEM string, bind func(path, password string) error) (retErr error) {
+	if config.Paths == nil {
+		return errors.New("panel did not return its software directory")
+	}
+	dir, ok := windowsPFXDir(config.Paths.Soft)
+	if !ok {
+		return errors.New("panel returned an invalid software directory")
+	}
+	if len(certPEM)+len(keyPEM) > iisbind.MaxRequest {
+		return errors.New("certificate material exceeds the upload limit")
+	}
+	if _, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM)); err != nil {
+		return errors.New("invalid certificate or mismatched private key")
+	}
+	password := rand.Text()
+	pfx, err := xcert.TransformCertificateFromPEMToPFX(certPEM, keyPEM, password, nil)
+	if err != nil {
+		return errors.New("failed to encode certificate and key as PFX")
+	}
+	defer clear(pfx)
+	hash := sha256.Sum256(pfx)
+	name := hex.EncodeToString(hash[:]) + ".pfx"
+	path := dir + "/" + name
+	// An interrupted upload may already have written this operation's file.
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if err := d.sdkClient.RemoveFile(cleanupCtx, path); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("remove temporary IIS certificate: %w", err))
+		}
+	}()
+	reply, err := d.sdkClient.FilesUploadWithContext(ctx, &btpanelgosdk.FilesUploadRequest{
+		Path: &dir, Name: &name, Start: lo.ToPtr(int32(0)), Size: lo.ToPtr(int32(len(pfx))), Blob: pfx, Force: lo.ToPtr(false),
+	})
+	if err != nil {
+		return fmt.Errorf("upload IIS certificate: %w", err)
+	}
+	if !reply.Confirmed() {
+		return errors.New("panel did not confirm PFX upload")
+	}
+	return bind(path, password)
+}
+
+func windowsPFXDir(softwareDir string) (string, bool) {
+	normalized := strings.ReplaceAll(softwareDir, "\\", "/")
+	if len(normalized) < 3 || normalized[1:3] != ":/" || strings.ContainsAny(normalized[3:], "\x00\r\n\t:*?\"<>|") {
+		return "", false
+	}
+	drive := normalized[0] | 0x20
+	if drive < 'a' || drive > 'z' {
+		return "", false
+	}
+	subdir := strings.TrimRight(normalized[3:], "/")
+	if subdir == "" {
+		return normalized[:3] + "temp/ssl/certimate", true
+	}
+	if subdir != path.Clean(subdir) {
+		return "", false
+	}
+	for part := range strings.SplitSeq(subdir, "/") {
+		if part == "" || strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") {
+			return "", false
+		}
+	}
+	return normalized[:3] + subdir + "/temp/ssl/certimate", true
 }
 
 func createSDKClient(serverUrl, apiKey string, skipTlsVerify bool) (*btpanelgosdk.Client, error) {

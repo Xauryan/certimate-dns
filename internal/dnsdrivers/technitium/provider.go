@@ -347,7 +347,11 @@ func (p *provider) write(ctx context.Context, zone, path string, v url.Values) (
 	if path == "add" {
 		n = out.AddedRecord
 	}
-	if !strings.EqualFold(out.Zone.Name, zone) || n == nil || !strings.EqualFold(n.Name, v.Get("domain")) || n.Type != v.Get("type") {
+	name := v.Get("domain")
+	if dest := v.Get("newDomain"); dest != "" {
+		name = dest
+	}
+	if !strings.EqualFold(out.Zone.Name, zone) || n == nil || !strings.EqualFold(n.Name, name) || n.Type != v.Get("type") {
 		return "", failure
 	}
 	r, err := parseRecord(zone, *n)
@@ -389,9 +393,16 @@ func (p *provider) CreateDNSRecord(ctx context.Context, zone string, in dns.Reco
 	return p.write(ctx, name, "add", v)
 }
 func (p *provider) update(ctx context.Context, zone string, r record, content string, ttl int, disabled bool, comments string) (string, error) {
+	return p.updateFields(ctx, zone, r, r.Name, content, r.Priority, ttl, disabled, comments)
+}
+func (p *provider) updateFields(ctx context.Context, zone string, r record, name, content string, priority *int, ttl int, disabled bool, comments string) (string, error) {
 	v := r.selector
-	if content != r.Content {
-		next, err := valueParams(r.Type, content, r.Priority)
+	if name != r.Name {
+		v.Set("newDomain", name)
+	}
+	priorityChanged := priority != nil && (r.Priority == nil || *r.Priority != *priority)
+	if content != r.Content || priorityChanged {
+		next, err := valueParams(r.Type, content, priority)
 		if err != nil {
 			return "", err
 		}

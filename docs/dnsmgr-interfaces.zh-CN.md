@@ -34,4 +34,10 @@ form.Set("sign", hex.EncodeToString(mac.Sum(nil)))
 
 向 `/mcp` 发送 JSON-RPC 2.0 POST 请求，以 `Authorization: Bearer UID:APIKEY` 认证。支持 `initialize`、`ping`、`tools/list` 和 `tools/call`。批请求最多含 32 条消息。调用批量变更需要工具动作权限及对应的实际修改权限。客户端可以先调用 `domain_query(list)` 获取本地字符串 ID。签名 HTTP 客户端从 `/api/domain` 获取数字域名 ID。
 
-固定版本定义 28 个工具、124 个动作。服务只枚举当前角色和密钥获准的动作。覆盖证书、Cloudflare、域名、记录和任务五组，完整名称见[入口索引](dnsmgr-entrypoints.zh-CN.md)。执行结果随服务商能力和本地配置而变化。例如记录改名或类型转换需要底层服务商的支持，当前通用更新路径仅修改值、TTL 和可用属性。Cloudflare Tunnel 令牌以调用方接收公钥加密返回。商业 CA 订单使用本地版本控制和额度确认。新任务先保存为草稿，优选 IP 在启用或执行前需要确认预览摘要。导入的源端 ID、草稿和凭据的具体处理见[迁移说明](dnsmgr-migration.zh-CN.md)。
+固定版本定义 28 个工具、124 个动作。服务只枚举当前角色和密钥获准的动作。覆盖证书、Cloudflare、域名、记录和任务五组，完整名称见[入口索引](dnsmgr-entrypoints.zh-CN.md)。Cloudflare Tunnel 令牌以调用方接收公钥加密返回。商业 CA 订单使用本地版本控制和额度确认。新任务先保存为草稿，优选 IP 在启用或执行前需要确认预览摘要。导入的源端 ID、草稿和凭据的具体处理见[迁移说明](dnsmgr-migration.zh-CN.md)。
+
+## 修改记录名称、类型和优先级
+
+签名接口 `/api/record/update/{id}` 与 MCP 的 `record_manage(update)` 支持驱动声明的改名、类型转换和优先级修改。通过 `/api/domain/{id}` 或 `domain_query(info)` 获取当前 Zone 的 `data.config.recordEdit`。`record_manage(edit_by_name)` 先匹配指定类型，A、AAAA、CNAME 之间可以按驱动能力转换。存在默认线路记录时优先操作这些记录。批量操作部分完成时返回 409，并报告已确认的操作数。
+
+`data.config.nativeRecords` 表示支持条件更新扩展。对 `/api/record/data/{id}` 添加 `native_records=1` 后，每行附带 `Native` 记录快照，旧字段继续提供。将 `Native` 作为 `expected` 表单字段的 JSON 字符串随更新提交，并使用快照中的记录 ID、带 Zone 的记录名和预期字段。MCP 用相同参数，`expected` 传 JSON 对象。浏览器使用原生 `PATCH /api/dns/{provider}/{access}/zones/{zone}/records/{record}`，改名、类型转换和优先级修改需附带列表返回的快照。快照过期或目标冲突时返回 409。一次原生替换只提交一次，回读确认完整状态后返回实际记录 ID。遇到回读无法确认的 409，应先查看服务商现状，再决定是否重试。

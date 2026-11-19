@@ -29,6 +29,17 @@ type request struct {
 }
 type resultFunc func(request) (any, error)
 
+func (r request) authorize(write bool) error {
+	z, err := dnsauth.FindZone(r.e, r.s.provider, r.s.access, r.s.zone, write)
+	if err != nil {
+		return err
+	}
+	if canonicalName(z.Name) != canonicalName(r.origin) {
+		return domain.ErrRecordNotFound
+	}
+	return nil
+}
+
 func Bind(api *router.RouterGroup[*core.RequestEvent], resolve Resolver) {
 	g := api.Group("/dns/{provider}/{access}/zones/{zone}/batch")
 	// Only apply and reconcile share a lock. The SQL claim protects against
@@ -46,7 +57,8 @@ func Bind(api *router.RouterGroup[*core.RequestEvent], resolve Resolver) {
 			if err != nil {
 				return resp.Err(e, domain.NewError(400, "could not open DNS provider"))
 			}
-			out, err := fn(request{e: e, s: s, origin: z.Name, client: p})
+			r := request{e: e, s: s, origin: z.Name, client: p}
+			out, err := fn(r)
 			if err != nil {
 				var public *domain.Error
 				switch {
@@ -60,7 +72,7 @@ func Bind(api *router.RouterGroup[*core.RequestEvent], resolve Resolver) {
 					return resp.Err(e, domain.NewError(500, "could not complete DNS batch request"))
 				}
 			}
-			if err := dnsauth.RequireZone(e, s.provider, s.access, s.zone, write); err != nil {
+			if err := r.authorize(write); err != nil {
 				return resp.Err(e, err)
 			}
 			e.Response.Header().Set("Cache-Control", "no-store")
@@ -69,7 +81,7 @@ func Bind(api *router.RouterGroup[*core.RequestEvent], resolve Resolver) {
 	}
 	lock := func(fn resultFunc) resultFunc {
 		return func(r request) (any, error) {
-			key := r.e.Request.PathValue("id")
+			key := [4]string{r.s.provider, r.s.access, r.s.zone, r.e.Request.PathValue("id")}
 			if _, busy := active.LoadOrStore(key, true); busy {
 				return nil, errConflict
 			}
@@ -81,7 +93,8 @@ func Bind(api *router.RouterGroup[*core.RequestEvent], resolve Resolver) {
 		_, groups := r.client.(Groups)
 		_, logs := r.client.(ProviderHistory)
 		caps, _ := dns.ProviderCapabilities(r.s.provider)
-		return map[string]any{"fields": fields(r.client), "capabilities": caps, "createLine": caps.Line, "groups": groups, "logs": logs}, nil
+		edit, _ := dns.RecordEditCapabilitiesForZone(r.e.Request.Context(), r.client, r.s.zone)
+		return map[string]any{"fields": fields(r.client), "capabilities": caps, "createLine": caps.Line, "groups": groups, "logs": logs, "edit": edit}, nil
 	}))
 	g.GET("/groups", wrap(false, func(r request) (any, error) {
 		g, ok := r.client.(Groups)
@@ -166,7 +179,7 @@ func Bind(api *router.RouterGroup[*core.RequestEvent], resolve Resolver) {
 			return nil, err
 		}
 		err = p.apply(r.e.Request.Context(), db, r.client, r.s, r.origin, input.Changes, func() error {
-			return dnsauth.RequireZone(r.e, r.s.provider, r.s.access, r.s.zone, true)
+			return r.authorize(true)
 		})
 		if err != nil {
 			return nil, err
@@ -179,7 +192,9 @@ func Bind(api *router.RouterGroup[*core.RequestEvent], resolve Resolver) {
 		if err != nil {
 			return nil, err
 		}
-		err = p.reconcile(r.e.Request.Context(), db, r.client, r.s, r.origin)
+		err = p.reconcile(r.e.Request.Context(), db, r.client, r.s, r.origin, func() error {
+			return r.authorize(true)
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -233,6 +248,9 @@ func preview(r request) (any, error) {
 	items, pre, err := prepare(r.e.Request.Context(), r.client, r.s.provider, r.s.zone, r.origin, rows, input.Changes)
 	if err != nil {
 		return nil, domain.NewError(400, err.Error())
+	}
+	if err := r.authorize(true); err != nil {
+		return nil, err
 	}
 	plan, err := saveNew(r.e.App.DB(), r.s, input.Changes, items)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/certimate-go/certimate/internal/dnsdrivers/dnsutil"
+	"github.com/certimate-go/certimate/internal/dnsdrivers/selfhostutil"
 	"github.com/certimate-go/certimate/internal/domain"
 	dns "github.com/certimate-go/certimate/pkg/core/dnsmanagement"
 )
@@ -42,14 +43,7 @@ func wireValue(kind, content string, priority *int) (string, error) {
 	}
 	switch kind {
 	case "MX":
-		n := 1
-		if priority != nil {
-			n = *priority
-		}
-		if n < 0 || n > 65535 {
-			return "", dns.ErrInvalidDNSRequest
-		}
-		return strconv.Itoa(n) + " " + content, nil
+		return dnsutil.MXValue(kind, content, priority, "")
 	case "TXT":
 		return strconv.Quote(content), nil
 	default:
@@ -103,6 +97,7 @@ func (p *provider) CreateDNSRecord(ctx context.Context, zone string, in dns.Reco
 			} `json:"value"`
 		} `json:"records"`
 	}
+	defer selfhostutil.LockZone("qingcloud", z)()
 	if err = p.call(ctx, "POST", "/v1/record/", nil, params, &out); err != nil {
 		return "", err
 	}
@@ -121,7 +116,7 @@ func (p *provider) CreateDNSRecord(ctx context.Context, zone string, in dns.Reco
 		}
 	}
 	if vid == 0 {
-		return p.locate(ctx, z, out.ID, 0, val)
+		return p.locate(ctx, z, out.ID, 0, val, &r)
 	}
 	return key(out.ID, vid), nil
 }
@@ -174,10 +169,13 @@ func (p *provider) selectValue(ctx context.Context, z string, rid, vid int64) (*
 }
 
 // RouteWize may reassign value IDs when a full set is updated.
-func (p *provider) locate(ctx context.Context, z string, rid, old int64, content string) (string, error) {
+func (p *provider) locate(ctx context.Context, z string, rid, old int64, content string, expected *record) (string, error) {
 	r, err := p.detail(ctx, z, rid)
 	if err != nil {
 		return "", err
+	}
+	if !strings.EqualFold(strings.TrimSuffix(r.Name, "."), strings.TrimSuffix(expected.Name, ".")) || r.Type != expected.Type || r.TTL != expected.TTL || *r.Line != *expected.Line || r.Mode != expected.Mode {
+		return "", errResponse
 	}
 	var matches []int64
 	for _, g := range r.Groups {
@@ -209,9 +207,7 @@ func (p *provider) mutate(ctx context.Context, zone, id string, patch *dns.Recor
 	if err != nil {
 		return "", err
 	}
-	lock := &recordLocks[rid%int64(len(recordLocks))]
-	lock.Lock()
-	defer lock.Unlock()
+	defer selfhostutil.LockZone("qingcloud", z)()
 	s, err := p.selectValue(ctx, z, rid, vid)
 	if err != nil {
 		return "", err
@@ -262,6 +258,13 @@ func (p *provider) mutate(ctx context.Context, zone, id string, patch *dns.Recor
 	default:
 		return "", dns.ErrInvalidDNSRequest
 	}
+	return p.replaceSelection(ctx, z, s, next, field == "delete")
+}
+
+func (p *provider) replaceSelection(ctx context.Context, z string, s *selected, next string, remove bool) (string, error) {
+	rid := s.ID
+	vid := s.Groups[s.groupIndex].Values[s.valueIndex].ID
+	id := key(rid, vid)
 	var groups []writeGroup
 	for i, g := range s.Groups {
 		// The provider does not take group status on replacement. Preserve a
@@ -273,7 +276,7 @@ func (p *provider) mutate(ctx context.Context, zone, id string, patch *dns.Recor
 		for j, v := range g.Values {
 			val := *v.Value
 			if i == s.groupIndex && j == s.valueIndex {
-				if field == "delete" {
+				if remove {
 					continue
 				}
 				val = next
@@ -285,7 +288,7 @@ func (p *provider) mutate(ctx context.Context, zone, id string, patch *dns.Recor
 		}
 	}
 	if len(groups) == 0 {
-		if err = p.changeStatus(ctx, rid, "record", "delete"); err != nil {
+		if err := p.changeStatus(ctx, rid, "record", "delete"); err != nil {
 			return "", err
 		}
 		return id, nil
@@ -297,10 +300,10 @@ func (p *provider) mutate(ctx context.Context, zone, id string, patch *dns.Recor
 	if err = p.call(ctx, "POST", "/v1/dr_id/"+strconv.FormatInt(rid, 10), nil, params, nil); err != nil {
 		return "", err
 	}
-	if field == "delete" {
+	if remove {
 		return id, nil
 	}
-	return p.locate(ctx, z, rid, vid, next)
+	return p.locate(ctx, z, rid, vid, next, &s.record)
 }
 
 func (p *provider) PatchDNSRecord(ctx context.Context, zone, id string, patch dns.RecordPatch) (string, error) {

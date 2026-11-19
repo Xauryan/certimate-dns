@@ -187,28 +187,36 @@ func (p *provider) DNSRecords(ctx context.Context, zone string, page int, name s
 	}
 	out := &dns.DNSPage[dns.DNSRecord]{Items: []dns.DNSRecord{}, Info: dns.PageInfo{Page: page, Total: int(*b.TotalCount)}}
 	for _, r := range b.DnsRecords {
-		row := dns.DNSRecord{ID: *r.RecordId, Name: *r.Name, Type: *r.Type, Content: val(r.Content), TTL: int(val(r.TTL)), Line: val(r.Location), Status: val(r.Status)}
-		if updated, err := time.Parse(time.RFC3339, val(r.ModifiedOn)); err == nil {
-			row.UpdatedAt = updated.UTC().Format(time.RFC3339)
-		}
-		if r.Weight != nil && *r.Weight >= 0 {
-			row.Weight = ptr(int(*r.Weight))
-		}
-		if r.Priority != nil && *r.Type == "MX" {
-			row.Priority = ptr(int(*r.Priority))
-		}
-		out.Items = append(out.Items, row)
+		out.Items = append(out.Items, recordView(r))
 	}
 	return out, nil
 }
 
-func (p *provider) record(ctx context.Context, zone, id string) (*teo.DnsRecord, error) {
-	if id == "" {
-		return nil, dns.ErrInvalidDNSRequest
+func recordView(r *teo.DnsRecord) dns.DNSRecord {
+	row := dns.DNSRecord{ID: *r.RecordId, Name: *r.Name, Type: *r.Type, Content: val(r.Content), TTL: int(val(r.TTL)), Line: val(r.Location), Status: val(r.Status)}
+	if updated, err := time.Parse(time.RFC3339, val(r.ModifiedOn)); err == nil {
+		row.UpdatedAt = updated.UTC().Format(time.RFC3339)
 	}
+	if r.Weight != nil && *r.Weight >= 0 {
+		row.Weight = ptr(int(*r.Weight))
+	}
+	if r.Priority != nil && *r.Type == "MX" {
+		row.Priority = ptr(int(*r.Priority))
+	}
+	return row
+}
+
+func (p *provider) record(ctx context.Context, zone, id string) (*teo.DnsRecord, error) {
 	z, err := p.zone(ctx, zone)
 	if err != nil {
 		return nil, err
+	}
+	return p.recordInZone(ctx, z, id)
+}
+
+func (p *provider) recordInZone(ctx context.Context, z dns.Zone, id string) (*teo.DnsRecord, error) {
+	if id == "" {
+		return nil, dns.ErrInvalidDNSRequest
 	}
 	b, err := p.records(ctx, z, 1, filter("id", id))
 	if err != nil {

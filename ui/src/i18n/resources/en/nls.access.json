@@ -811,6 +811,16 @@
       "tooltip": "For more information, see <a href=\"https://docs.cloud.google.com/iam/docs/keys-create-delete\" target=\"_blank\">https://docs.cloud.google.com/iam/docs/keys-create-delete</a>"
     },
     "googletrustservices_eab": {
+      "environment": "ACME environment",
+      "environment_live": "Production",
+      "environment_staging": "Staging",
+      "mode": "EAB credentials",
+      "mode_manual": "Enter EAB key manually",
+      "mode_auto": "Create EAB key in a Google Cloud project",
+      "project_id_invalid": "Enter a valid Google Cloud project ID.",
+      "service_account_key": "Google service account key JSON",
+      "service_account_key_invalid": "Enter a Google service account key JSON file.",
+      "service_account_key_help": "Enable the Public CA API and grant this service account the Public CA External Account Key Creator role on the target project.",
       "guide": "Learn more about using EAB key in Google Trust Services: <br><a href=\"https://cloud.google.com/certificate-manager/docs/public-ca-tutorial\" target=\"_blank\">https://cloud.google.com/certificate-manager/docs/public-ca-tutorial</a>"
     },
     "hetzner_api_token": {

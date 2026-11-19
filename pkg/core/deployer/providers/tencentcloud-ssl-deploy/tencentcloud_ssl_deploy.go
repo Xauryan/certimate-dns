@@ -42,11 +42,12 @@ type DeployerConfig struct {
 }
 
 type Deployer struct {
-	config       *DeployerConfig
-	logger       *slog.Logger
-	sdkClient    *tcssl.Client
-	sdkCertmgr   core.Certmgr
-	pollInterval time.Duration
+	config        *DeployerConfig
+	logger        *slog.Logger
+	sdkClient     *tcssl.Client
+	sdkCertmgr    core.Certmgr
+	pollInterval  time.Duration
+	confirmTarget func(*tcssl.DescribeHostDeployRecordDetailResponse, string) bool
 }
 
 var _ Provider = (*Deployer)(nil)
@@ -151,6 +152,9 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 			return nil, fmt.Errorf("deployment record %s reports %d failed resources of %d", recordID, failed, total)
 		}
 		if total > 0 && succeeded == total && running == 0 && pending == 0 {
+			if d.confirmTarget != nil && !d.confirmTarget(detail, uploaded.CertId) {
+				return nil, fmt.Errorf("deployment record %s did not confirm the requested certificate and target", recordID)
+			}
 			return &DeployResult{ExtendedData: map[string]any{"deployRecordId": recordID}}, nil
 		}
 		d.logger.Debug("waiting for Tencent Cloud SSL deployment", "recordId", recordID, "pending", pending, "running", running, "succeeded", succeeded, "total", total)

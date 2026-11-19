@@ -98,7 +98,14 @@ func (h dnsHandler) records(e *core.RequestEvent) error {
 		return resp.Err(e, err)
 	}
 	value, err := c.DNSRecords(e.Request.Context(), e.Request.PathValue("zone"), page, e.Request.URL.Query().Get("name"))
-	return dnsReply(e, value, err)
+	if err != nil || value == nil {
+		return dnsReply(e, value, err)
+	}
+	edit, _ := dnsmodel.RecordEditCapabilitiesForZone(e.Request.Context(), c, e.Request.PathValue("zone"))
+	return resp.Ok(e, struct {
+		*dnsmodel.DNSPage[dnsmodel.DNSRecord]
+		Edit dnsmodel.RecordEditCapabilities `json:"edit"`
+	}{value, edit})
 }
 
 func (h dnsHandler) export(e *core.RequestEvent) error {
@@ -149,7 +156,7 @@ func (h dnsHandler) create(e *core.RequestEvent) error {
 }
 
 func (h dnsHandler) patch(e *core.RequestEvent) error {
-	var input cf.RecordPatch
+	var input recordUpdate
 	if err := e.BindBody(&input); err != nil || input.Content == "" || !validTTL(e.Request.PathValue("provider"), input.TTL) {
 		return resp.Err(e, domain.ErrInvalidParams)
 	}
@@ -158,7 +165,11 @@ func (h dnsHandler) patch(e *core.RequestEvent) error {
 		return resp.Err(e, err)
 	}
 	id := e.Request.PathValue("record")
-	id, err = c.PatchDNSRecord(e.Request.Context(), e.Request.PathValue("zone"), id, input)
+	if input.Expected != nil || input.Name != nil || input.Type != nil || input.Priority != nil {
+		id, err = replaceRecord(e, c, id, input)
+	} else {
+		id, err = c.PatchDNSRecord(e.Request.Context(), e.Request.PathValue("zone"), id, input.RecordPatch)
+	}
 	return finishDNSWrite(e, id, err)
 }
 

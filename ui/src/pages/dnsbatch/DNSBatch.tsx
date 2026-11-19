@@ -11,19 +11,19 @@ import {
   type BatchRecord,
   type BatchZone,
   type Draft,
-  type Features,
   type Plan,
   type PreviewRow,
   type Review,
-  batchPath,
+  type ZoneInput,
   splitDraft,
-  useData,
+  targetZone,
   useLabel,
+  useTargetFeatures,
 } from "./model";
 import RecordSelection from "./RecordSelection";
 import ReviewPlan from "./ReviewPlans";
 
-type Props = { base: string; zone: Zone; canWrite?: boolean; zones?: BatchZone[]; onApplied?: () => void };
+type Props = { base: string; zone: Zone; canWrite?: boolean; zones?: ZoneInput[]; onApplied?: () => void };
 type Archive = { provider: string; accessId: string; zoneId: string; groups?: { id: string; name: string }[]; records: BatchRecord[] };
 type Grant = { zoneId: string; name: string; status: string; provider: string; accessId: string; canWrite: boolean };
 
@@ -33,12 +33,20 @@ function Panel({ base, zone, zones, canWrite = true, onApplied }: Props) {
   const { page } = request;
   const [more, setMore] = useState(true);
   const [options, setOptions] = useState<BatchZone[]>(() => {
-    const all = new Map(zones?.map((z) => [z.id, z]));
-    all.set(zone.id, { ...zone, canWrite: canWrite && all.get(zone.id)?.canWrite !== false });
+    const all = new Map(
+      zones?.map((z) => {
+        const target = targetZone(z, base);
+        return [target.key, target];
+      })
+    );
+    const initial = targetZone({ ...zone, canWrite }, base);
+    initial.canWrite = canWrite && all.get(initial.key)?.canWrite !== false;
+    all.set(initial.key, initial);
     return [...all.values()];
   });
-  const [selected, setSelected] = useState<string[]>([zone.id]);
-  const [active, setActive] = useState(zone.id);
+  const initialKey = targetZone(zone, base).key;
+  const [selected, setSelected] = useState<string[]>([initialKey]);
+  const [active, setActive] = useState(initialKey);
   const [tab, setTab] = useState("records");
   const [reviews, setReviews] = useState<Review[]>([]);
   const [reviewPage, setReviewPage] = useState(1);
@@ -64,16 +72,16 @@ function Panel({ base, zone, zones, canWrite = true, onApplied }: Props) {
       .then(
         (data) => {
           if (!current) return;
-          const granted = data.items.filter((g) => "/api/dns/" + encodeURIComponent(g.provider) + "/" + encodeURIComponent(g.accessId) === base);
           setOptions((prev) => {
-            const all = new Map(prev.map((z) => [z.id, z]));
-            for (const grant of granted)
-              all.set(grant.zoneId, {
-                id: grant.zoneId,
-                name: grant.name,
-                status: grant.status,
-                canWrite: grant.canWrite && (grant.zoneId !== zone.id || canWrite),
-              });
+            const all = new Map(prev.map((z) => [z.key, z]));
+            for (const grant of data.items) {
+              const z = targetZone(
+                { id: grant.zoneId, name: grant.name, status: grant.status, provider: grant.provider, accessId: grant.accessId, canWrite: grant.canWrite },
+                base
+              );
+              if (z.key === initialKey && !canWrite) z.canWrite = false;
+              all.set(z.key, z);
+            }
             return [...all.values()];
           });
           setMore(page * 100 < data.total);
@@ -88,12 +96,16 @@ function Panel({ base, zone, zones, canWrite = true, onApplied }: Props) {
     return () => {
       current = false;
     };
-  }, [base, request, page, zones, zone.id, canWrite]);
-  const chosen = options.filter((z) => selected.includes(z.id));
+  }, [base, request, page, zones, initialKey, canWrite]);
+  const chosen = options.filter((z) => selected.includes(z.key));
   const writable = chosen.filter((z) => z.canWrite !== false);
-  const viewing = chosen.find((z) => z.id === active) ?? chosen[0] ?? zone;
-  const path = batchPath(base, viewing);
-  const features = useData<Features>(path + "/features", revision);
+  const viewing = chosen.find((z) => z.key === active) ?? chosen[0];
+  const path = viewing.key + "/batch";
+  const result = useTargetFeatures(
+    chosen.map((z) => z.key),
+    revision
+  );
+  const features = result?.features ?? {};
   const refresh = () => {
     setRevision((v) => v + 1);
     onApplied?.();
@@ -110,10 +122,10 @@ function Panel({ base, zone, zones, canWrite = true, onApplied }: Props) {
       for (const draft of drafts.flatMap(splitDraft)) {
         if (!present.current) return;
         try {
-          const data = await dnsRequest<{ plan: Plan; rows: PreviewRow[] }>(batchPath(base, draft.zone) + "/preview", "POST", draft.payload);
+          const data = await dnsRequest<{ plan: Plan; rows: PreviewRow[] }>(draft.zone.key + "/batch/preview", "POST", draft.payload);
           result.push({ ...data, zone: draft.zone, batch: draft.batch });
         } catch (e) {
-          errors.push([draft.zone.name, draft.batch, unwrapErrMsg(e)].filter(Boolean).join(" · "));
+          errors.push([draft.zone.label, draft.batch, unwrapErrMsg(e)].filter(Boolean).join(" · "));
         }
       }
       if (present.current) {
@@ -154,8 +166,8 @@ function Panel({ base, zone, zones, canWrite = true, onApplied }: Props) {
     <Select
       style={{ minWidth: 220 }}
       aria-label={l("查看域名", "View zone")}
-      value={viewing.id}
-      options={chosen.map((z) => ({ value: z.id, label: z.name }))}
+      value={viewing.key}
+      options={chosen.map((z) => ({ value: z.key, label: z.label }))}
       onChange={setActive}
     />
   );
@@ -169,7 +181,7 @@ function Panel({ base, zone, zones, canWrite = true, onApplied }: Props) {
           style={{ minWidth: 240, maxWidth: "100%" }}
           value={selected}
           disabled={busy}
-          options={options.map((z) => ({ value: z.id, label: z.name + (z.canWrite === false ? l("（只读）", " (read-only)") : "") }))}
+          options={options.map((z) => ({ value: z.key, label: z.label + (z.canWrite === false ? l("（只读）", " (read-only)") : "") }))}
           showSearch={{ optionFilterProp: "label" }}
           onChange={(ids) => {
             if (ids.length) {
@@ -192,7 +204,10 @@ function Panel({ base, zone, zones, canWrite = true, onApplied }: Props) {
         )}
       </Space>
       {discoveryError && <Alert type="error" showIcon title={discoveryError} />}
-      {(error || features?.error) && <Alert type="error" showIcon title={error || features?.error} />}
+      {error && <Alert type="error" showIcon title={error} />}
+      {result?.errors.map((err) => (
+        <Alert key={err} type="error" showIcon title={err} />
+      ))}
       <Tabs
         activeKey={tab}
         onChange={setTab}
@@ -200,22 +215,15 @@ function Panel({ base, zone, zones, canWrite = true, onApplied }: Props) {
           {
             key: "records",
             label: l("批量编辑", "Bulk edit"),
-            children: <RecordSelection base={base} zones={chosen} features={features?.data} revision={revision} preview={preview} busy={busy} />,
+            children: <RecordSelection zones={chosen} features={features} revision={revision} preview={preview} busy={busy} />,
           },
           ...(writable.length
             ? [
                 {
                   key: "import",
                   label: l("新增与导入", "Add and import"),
-                  children: features?.data?.capabilities ? (
-                    <ImportRecords
-                      key={JSON.stringify(writable.map((z) => z.id))}
-                      base={base}
-                      zones={writable}
-                      features={features.data}
-                      busy={busy}
-                      preview={preview}
-                    />
+                  children: writable.every((z) => features[z.key]?.capabilities) ? (
+                    <ImportRecords key={JSON.stringify(writable.map((z) => z.key))} zones={writable} features={features} busy={busy} preview={preview} />
                   ) : (
                     <Typography.Text>{l("正在读取服务商支持的记录类型…", "Loading supported provider record types…")}</Typography.Text>
                   ),
@@ -235,11 +243,12 @@ function Panel({ base, zone, zones, canWrite = true, onApplied }: Props) {
                 )}
                 {reviews.slice((reviewPage - 1) * 5, reviewPage * 5).map((item) => (
                   <ReviewPlan
-                    key={item.plan.id}
-                    base={base}
+                    key={item.zone.key + "/" + item.plan.id}
                     review={item}
-                    canWrite={options.find((z) => z.id === item.zone.id)?.canWrite !== false && selected.includes(item.zone.id)}
-                    onPlan={(updated) => setReviews((prev) => prev.map((r) => (r.plan.id === updated.id ? { ...r, plan: updated } : r)))}
+                    canWrite={writable.some((z) => z.key === item.zone.key)}
+                    onPlan={(updated) =>
+                      setReviews((prev) => prev.map((r) => (r.zone.key === item.zone.key && r.plan.id === updated.id ? { ...r, plan: updated } : r)))
+                    }
                     onApplied={refresh}
                   />
                 ))}
@@ -253,7 +262,7 @@ function Panel({ base, zone, zones, canWrite = true, onApplied }: Props) {
             children: (
               <Space orientation="vertical" style={{ width: "100%" }}>
                 {readZoneSelector}
-                <History key={path} path={path} canWrite={viewing.canWrite !== false} features={features?.data} revision={revision} />
+                <History key={path} path={path} canWrite={viewing.canWrite !== false} features={features[viewing.key]} revision={revision} />
               </Space>
             ),
           },

@@ -811,6 +811,16 @@
       "tooltip": "这是什么？请参阅 <a href=\"https://docs.cloud.google.com/iam/docs/keys-create-delete?hl=zh-cn\" target=\"_blank\">https://docs.cloud.google.com/iam/docs/keys-create-delete</a>"
     },
     "googletrustservices_eab": {
+      "environment": "ACME 环境",
+      "environment_live": "生产环境",
+      "environment_staging": "测试环境",
+      "mode": "EAB 凭据",
+      "mode_manual": "手动填写 EAB 密钥",
+      "mode_auto": "在 Google Cloud 项目中创建 EAB 密钥",
+      "project_id_invalid": "请输入有效的 Google Cloud 项目 ID。",
+      "service_account_key": "Google 服务账号密钥 JSON",
+      "service_account_key_invalid": "请输入 Google 服务账号密钥 JSON。",
+      "service_account_key_help": "请启用 Public CA API，并为此服务账号授予目标项目的 Public CA 外部账号密钥创建者角色。",
       "guide": "点击下方链接了解如何获取 Google Trust Services EAB：<br><a href=\"https://cloud.google.com/certificate-manager/docs/public-ca-tutorial\" target=\"_blank\">https://cloud.google.com/certificate-manager/docs/public-ca-tutorial</a>"
     },
     "hetzner_api_token": {

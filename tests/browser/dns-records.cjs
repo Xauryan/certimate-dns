@@ -21,6 +21,7 @@ withConsole(async (address) => {
     let records = [];
     const methods = [];
     let failNextPatch = true;
+    let allowRichEdit = false;
     await page.route("**/api/**", async (route) => {
       const req = route.request(),
         u = new URL(req.url());
@@ -49,7 +50,7 @@ withConsole(async (address) => {
       else if (u.pathname.endsWith("/advanced/details")) data = { name: zone.name, lines: [{ id: "0", name: "DNS only" }] };
       else if (u.pathname.endsWith("/zones")) data = { result: [zone], result_info: { page: 1, total_count: 1 } };
       else if (u.pathname.endsWith("/export")) data = 'example.org. 300 IN TXT "test"';
-      else if (m === "GET") data = { result: records, result_info: { page: 1, total_count: records.length } };
+      else if (m === "GET") data = { result: records, result_info: { page: 1, total_count: records.length }, edit: { rename: allowRichEdit, retype: allowRichEdit, priority: allowRichEdit } };
       else {
         methods.push(m);
         if (m === "POST") records = [{ id, ...req.postDataJSON(), proxied: false }];
@@ -58,8 +59,19 @@ withConsole(async (address) => {
           return route.fulfill({ json: { code: 500, msg: "Fixture denied change", data: null } });
         }
         if (m === "PATCH") {
-          assert.deepEqual(Object.keys(req.postDataJSON()).sort(), ["content", "ttl"]);
-          Object.assign(records[0], req.postDataJSON());
+          const { expected, ...desired } = req.postDataJSON();
+          if (allowRichEdit) {
+            assert.equal(u.searchParams.get("page"), "1");
+            assert.deepEqual(expected, records[0]);
+            assert.equal(desired.name, "mail.example.org");
+            assert.equal(desired.type, "MX");
+            assert.equal(desired.priority, 15);
+          } else {
+            assert.equal(expected, undefined);
+            assert.deepEqual(Object.keys(desired).sort(), ["content", "ttl"]);
+            allowRichEdit = true;
+          }
+          Object.assign(records[0], desired);
         }
         if (m === "DELETE") records = [];
         data = id;
@@ -95,6 +107,15 @@ withConsole(async (address) => {
     await page.getByRole("cell", { name: "192.0.2.2" }).waitFor();
     await page.reload();
     await page.getByRole("cell", { name: "www.example.org" }).waitFor();
+    await page.getByRole("button", { name: /Edit record|编辑记录/ }).click();
+    modal = page.getByRole("dialog");
+    await modal.locator("#type").click();
+    await page.locator(".ant-select-dropdown:visible").getByText("MX", { exact: true }).click();
+    await modal.locator("input#name").fill("mail.example.org");
+    await modal.locator("#priority").fill("15");
+    await modal.locator("textarea").fill("mx.example.org");
+    await modal.locator("button.ant-btn-primary").click();
+    await page.getByRole("cell", { name: "mail.example.org", exact: true }).waitFor();
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: /Export BIND|导出 BIND/ }).click();
     assert.equal((await download).suggestedFilename(), "example.org.zone");
@@ -103,8 +124,8 @@ withConsole(async (address) => {
       .getByRole("dialog")
       .getByRole("button", { name: /^Delete$|^删除$/ })
       .click();
-    await page.getByRole("cell", { name: "www.example.org" }).waitFor({ state: "detached" });
-    assert.deepEqual(methods, ["POST", "PATCH", "PATCH", "DELETE"]);
+    await page.getByRole("cell", { name: "mail.example.org" }).waitFor({ state: "detached" });
+    assert.deepEqual(methods, ["POST", "PATCH", "PATCH", "PATCH", "DELETE"]);
     assert.deepEqual(errs, []);
     await page.goto(address + "/#/dns?access=disabledfixture");
     await page

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-type FieldKind = "text" | "secret" | "https" | "email" | "list" | "port" | "fingerprint" | "positiveId" | "cdnDomainId";
+type FieldKind = "text" | "secret" | "https" | "email" | "list" | "port" | "fingerprint" | "positiveId" | "cdnDomainId" | "sniTarget";
 
 export interface HostingField {
   name: string;
@@ -20,6 +20,7 @@ const siteNames: HostingField = { name: "target", label: "siteNames", kind: "lis
 const domains: HostingField = { name: "target", label: "domains", kind: "list" };
 
 export const panelAccessFields = {
+  amh: [serverUrl, username, { ...password, help: "amhLogin" }],
   cloudpanel: [serverUrl, username, password],
   directadmin: [serverUrl, username, password],
   fnos: [
@@ -28,6 +29,13 @@ export const panelAccessFields = {
     username,
     password,
     { name: "hostKeyFingerprint", kind: "fingerprint", help: "fingerprintHelp" },
+  ],
+  iis: [
+    { name: "host" },
+    { name: "port", kind: "port", initial: 22 },
+    { ...username, help: "iisSshAccount" },
+    password,
+    { name: "hostKeyFingerprint", kind: "fingerprint", help: "iisFingerprintHelp" },
   ],
   kangle: [serverUrl, username, { ...password, optional: true, help: "kangleAuth" }, { ...securityKey, optional: true }],
   kangleadmin: [serverUrl, username, securityKey, { name: "adminPath", optional: true, initial: "/admin" }],
@@ -40,9 +48,11 @@ export const panelAccessFields = {
 } satisfies Record<string, HostingField[]>;
 
 export const panelDeploymentFields = {
+  amh: [{ name: "environment" }, siteNames],
   cloudpanel: [domains],
   directadmin: [domains],
   fnos: [],
+  iis: [{ name: "target", label: "iisTarget", kind: "sniTarget", help: "iisTargetHelp" }],
   kangle: [{ ...domains, optional: true, help: "kangleDomains" }],
   kangleadmin: [
     { name: "target", label: "siteUsers", kind: "list" },
@@ -56,6 +66,16 @@ export const panelDeploymentFields = {
   qzyun: [
     { name: "target", label: "certificateNameOrId" },
     { name: "domain", label: "bindingDomain", optional: true },
+  ],
+  "tencentcloud-lighthouse": [
+    { name: "region", label: "tencentRegion" },
+    { name: "instanceId", label: "tencentInstanceId" },
+    { name: "domain", label: "tencentDomain" },
+  ],
+  "tencentcloud-tcb": [
+    { name: "region", label: "tencentRegion" },
+    { name: "environmentId", label: "tencentEnvironmentId" },
+    { name: "domain", label: "tencentDomain" },
   ],
   "tencentcloud-tke": [{ name: "region" }, { name: "clusterId" }, { name: "namespace" }, { name: "secretName" }],
   uusec: [
@@ -85,6 +105,22 @@ function fieldSchema(field: HostingField) {
         .string()
         .trim()
         .regex(/^[0-9]{1,32}$/);
+    case "sniTarget":
+      return z
+        .string()
+        .trim()
+        .refine((raw) => {
+          const [host, port, extra] = raw.split(":");
+          const name = host.replace(/\.$/, "");
+          return (
+            extra === undefined &&
+            name.length <= 253 &&
+            name.includes(".") &&
+            !/^\d+\.\d+\.\d+\.\d+$/.test(name) &&
+            name.split(".").every((label) => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label)) &&
+            (port === undefined || (/^\d+$/.test(port) && Number(port) > 0 && Number(port) <= 65535))
+          );
+        });
     case "positiveId":
       return z
         .string()

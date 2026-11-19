@@ -150,6 +150,7 @@ import BizDeployNodeConfigFieldsProviderVolcEngineVOD from "./BizDeployNodeConfi
 import BizDeployNodeConfigFieldsProviderVolcEngineWAF from "./BizDeployNodeConfigFieldsProviderVolcEngineWAF";
 import BizDeployNodeConfigFieldsProviderWangsuCDN from "./BizDeployNodeConfigFieldsProviderWangsuCDN";
 import BizDeployNodeConfigFieldsProviderWangsuCDNPro from "./BizDeployNodeConfigFieldsProviderWangsuCDNPro";
+import WangsuCDNProCertificateFields from "./WangsuCDNProCertificateFields";
 import BizDeployNodeConfigFieldsProviderWangsuCertificate from "./BizDeployNodeConfigFieldsProviderWangsuCertificate";
 import BizDeployNodeConfigFieldsProviderWebhook from "./BizDeployNodeConfigFieldsProviderWebhook";
 import BizDeployNodeConfigFieldsProviderYandexCloudCertificateManager from "./BizDeployNodeConfigFieldsProviderYandexCloudCertificateManager";
@@ -307,6 +308,7 @@ const providerComponentMap: Partial<Record<DeploymentProviderType, React.Compone
   [DEPLOYMENT_PROVIDERS.VOLCENGINE_WAF]: BizDeployNodeConfigFieldsProviderVolcEngineWAF,
   [DEPLOYMENT_PROVIDERS.WANGSU_CDN]: BizDeployNodeConfigFieldsProviderWangsuCDN,
   [DEPLOYMENT_PROVIDERS.WANGSU_CDNPRO]: BizDeployNodeConfigFieldsProviderWangsuCDNPro,
+  [DEPLOYMENT_PROVIDERS.WANGSU_CDNPRO_CERTIFICATE]: WangsuCDNProCertificateFields,
   [DEPLOYMENT_PROVIDERS.WANGSU_CERTIFICATE]: BizDeployNodeConfigFieldsProviderWangsuCertificate,
   [DEPLOYMENT_PROVIDERS.WEBHOOK]: BizDeployNodeConfigFieldsProviderWebhook,
   [DEPLOYMENT_PROVIDERS.YANDEXCLOUD_CERTIFICATEMANAGER]: BizDeployNodeConfigFieldsProviderYandexCloudCertificateManager,

@@ -79,6 +79,7 @@ func (p *provider) post(ctx context.Context, path string, v url.Values, out any)
 	if raw[0] == '{' {
 		var envelope struct {
 			Code *int
+			ID   u.Text
 			Data json.RawMessage
 		}
 		if json.Unmarshal(raw, &envelope) != nil {
@@ -89,6 +90,10 @@ func (p *provider) post(ctx context.Context, path string, v url.Values, out any)
 				return u.ErrProvider
 			}
 			if out == nil {
+				return nil
+			}
+			if id, ok := out.(*mutationID); ok {
+				*id = mutationID(envelope.ID)
 				return nil
 			}
 			raw = envelope.Data
@@ -114,6 +119,11 @@ func paging(n int) url.Values {
 }
 
 type zone struct {
+	Config struct {
+		Type          string
+		RecordEdit    *dns.RecordEditCapabilities
+		NativeRecords bool
+	}
 	ID         u.Text
 	Name       string
 	MinTTL     int
@@ -156,15 +166,17 @@ func (p *provider) zone(ctx context.Context, id string) (zone, error) {
 	if err != nil {
 		return z, err
 	}
-	if string(z.ID) != id || z.Name == "" {
+	if _, err := dnsutil.ZoneName(z.Name); string(z.ID) != id || err != nil {
 		return z, domain.ErrRecordNotFound
 	}
 	return z, nil
 }
 
 type record struct {
-	RecordID, Line, TTL, Status, Weight, MX u.Text
-	Domain, Name, Type, Value, Remark       string
+	RecordID, Line, TTL, Status, Weight, MX       u.Text
+	Domain, Name, Type, Value, Remark, UpdateTime string
+	Proxied                                       bool
+	Native                                        *dns.DNSRecord
 }
 
 func (r record) dns(z zone) (dns.DNSRecord, error) {
@@ -175,17 +187,37 @@ func (r record) dns(z zone) (dns.DNSRecord, error) {
 	if r.Name == "" || r.Type == "" || ttl < 0 {
 		return dns.DNSRecord{}, u.ErrProvider
 	}
+	if z.Config.NativeRecords {
+		if r.Native == nil || r.Native.ID != string(r.RecordID) || r.Native.Type != r.Type || r.Native.TTL != ttl {
+			return dns.DNSRecord{}, u.ErrProvider
+		}
+		if _, err := dnsutil.RelativeName(r.Native.Name, z.Name); err != nil {
+			return dns.DNSRecord{}, u.ErrProvider
+		}
+		return *r.Native, nil
+	}
 	status := "enabled"
 	if r.Status == "0" {
 		status = "disabled"
 	}
-	return dns.DNSRecord{ID: string(r.RecordID), Name: u.Full(r.Name, z.Name), Type: r.Type, Content: r.Value, TTL: ttl, Line: string(r.Line), Status: status, Description: r.Remark, Weight: integer(r.Weight), Priority: integer(r.MX)}, nil
+	var priority *int
+	if r.Type == "MX" {
+		priority = integer(r.MX)
+	}
+	weight := integer(r.Weight)
+	if z.Config.Type == "bt" && (r.Type == "MX" || weight != nil && *weight <= 1) {
+		weight = nil // Older Baota adapters return their shared MX/weight field twice.
+	}
+	return dns.DNSRecord{ID: string(r.RecordID), Name: u.Full(r.Name, z.Name), Type: r.Type, Content: r.Value, TTL: ttl, Line: string(r.Line), Status: status, Description: r.Remark, Weight: weight, Priority: priority, UpdatedAt: r.UpdateTime, Proxied: r.Proxied || z.Config.Type == "cloudflare" && r.Line == "1"}, nil
 }
 func (p *provider) records(ctx context.Context, z zone, page int, q url.Values) (pageData[record], error) {
 	var raw json.RawMessage
 	v := paging(page)
 	for k, vs := range q {
 		v[k] = vs
+	}
+	if z.Config.NativeRecords {
+		v.Set("native_records", "1")
 	}
 	if err := p.post(ctx, "record/data/"+string(z.ID), v, &raw); err != nil {
 		return pageData[record]{}, err
@@ -341,8 +373,11 @@ func (p *provider) old(ctx context.Context, zoneID, id string) (record, error) {
 	if err != nil {
 		return record{}, err
 	}
+	return p.oldInZone(ctx, z, id)
+}
+func (p *provider) oldInZone(ctx context.Context, z zone, id string) (record, error) {
 	var found record
-	err = p.walk(ctx, z, nil, func(r record) error {
+	err := p.walk(ctx, z, nil, func(r record) error {
 		if string(r.RecordID) == id {
 			found = r
 		}
@@ -370,6 +405,9 @@ func (p *provider) PatchDNSRecord(ctx context.Context, zone, id string, in dns.R
 	return id, nil
 }
 func (p *provider) update(ctx context.Context, zone string, r record) error {
+	return p.post(ctx, "record/update/"+zone, r.updateForm(), nil)
+}
+func (r record) updateForm() url.Values {
 	v := url.Values{"recordid": {string(r.RecordID)}, "name": {r.Name}, "type": {r.Type}, "line": {string(r.Line)}, "value": {r.Value}, "ttl": {string(r.TTL)}, "remark": {r.Remark}}
 	if r.MX != "" {
 		v.Set("mx", string(r.MX))
@@ -377,7 +415,7 @@ func (p *provider) update(ctx context.Context, zone string, r record) error {
 	if r.Weight != "" {
 		v.Set("weight", string(r.Weight))
 	}
-	return p.post(ctx, "record/update/"+zone, v, nil)
+	return v
 }
 func (p *provider) DeleteDNSRecord(ctx context.Context, zone, id string) (string, error) {
 	defer u.LockZone(p.client.Base, zone)()
@@ -395,7 +433,8 @@ func (p *provider) ZoneDetails(ctx context.Context, id string) (*dns.ZoneDetails
 	if err != nil {
 		return nil, err
 	}
-	out := &dns.ZoneDetails{Name: z.Name, Status: "active", MinTTL: z.MinTTL, Lines: []dns.RecordLine{}}
+	caps := z.editCapabilities()
+	out := &dns.ZoneDetails{Name: z.Name, Status: "active", MinTTL: z.MinTTL, Lines: []dns.RecordLine{}, RecordEdit: &caps}
 	for _, line := range z.RecordLine {
 		out.Lines = append(out.Lines, dns.RecordLine{ID: string(line.ID), Name: line.Name, Parent: string(line.Parent)})
 	}

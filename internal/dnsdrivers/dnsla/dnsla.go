@@ -174,7 +174,7 @@ func (p *provider) DNSRecords(ctx context.Context, id string, page int, filter s
 	}
 	out := &dns.DNSPage[dns.DNSRecord]{Items: []dns.DNSRecord{}, Info: dns.PageInfo{Page: page, Total: *data.Total}}
 	for _, r := range data.Results {
-		out.Items = append(out.Items, dns.DNSRecord{ID: string(r.ID), Priority: r.Preference, Weight: r.Weight, Description: r.Remark, Name: u.Full(r.Host, z.name()), Type: r.kind(), Content: r.content(), TTL: r.TTL, Line: string(r.Line), Status: u.Status(r.Disabled)})
+		out.Items = append(out.Items, r.view(z))
 	}
 	return out, nil
 }
@@ -200,20 +200,8 @@ func (p *provider) CreateDNSRecord(ctx context.Context, id string, in dns.Record
 			return "", err
 		}
 	}
-	switch in.Type {
-	case "REDIRECT_URL", "FORWARD_URL":
-		redirect := in.Type == "REDIRECT_URL"
-		body.Type, body.Dominant = 256, &redirect
-	default:
-		for number, label := range typeNames {
-			if label == in.Type {
-				body.Type = number
-				break
-			}
-		}
-	}
-	if body.Type == 0 {
-		return "", dns.ErrInvalidDNSRequest
+	if err := body.setType(in.Type); err != nil {
+		return "", err
 	}
 	if err := body.setContent(in.Content); err != nil {
 		return "", err
@@ -234,11 +222,14 @@ func (p *provider) find(ctx context.Context, zoneID, id string) (record, error) 
 	if err != nil {
 		return record{}, err
 	}
+	return p.findInZone(ctx, z, id)
+}
+func (p *provider) findInZone(ctx context.Context, z zone, id string) (record, error) {
 	if id == "" {
 		return record{}, dns.ErrInvalidDNSRequest
 	}
 	var found record
-	err = registrarutil.Walk(dns.DNSPageSize, func(page int) ([]record, int, error) {
+	err := registrarutil.Walk(dns.DNSPageSize, func(page int) ([]record, int, error) {
 		rows, err := p.records(ctx, z, page, "")
 		if err != nil {
 			return nil, 0, err
@@ -408,4 +399,30 @@ func (p *provider) SetBatchAttribute(ctx context.Context, zone, id, field, value
 	}
 	r.DomainID = ""
 	return p.call(ctx, "PUT", "/api/record", nil, r, nil)
+}
+
+func (r record) view(z zone) dns.DNSRecord {
+	return dns.DNSRecord{ID: string(r.ID), Priority: r.Preference, Weight: r.Weight, Description: r.Remark, Name: u.Full(r.Host, z.name()), Type: r.kind(), Content: r.content(), TTL: r.TTL, Line: string(r.Line), Status: u.Status(r.Disabled)}
+}
+
+func (r *record) setType(kind string) error {
+	r.Dominant = nil
+	r.Type = 0
+	r.Preference = nil
+	switch kind {
+	case "REDIRECT_URL", "FORWARD_URL":
+		redirect := kind == "REDIRECT_URL"
+		r.Type, r.Dominant = 256, &redirect
+	default:
+		for number, label := range typeNames {
+			if label == kind {
+				r.Type = number
+				break
+			}
+		}
+	}
+	if r.Type == 0 {
+		return dns.ErrInvalidDNSRequest
+	}
+	return nil
 }

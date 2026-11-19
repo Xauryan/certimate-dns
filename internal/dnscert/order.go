@@ -180,12 +180,23 @@ func canonicalDomain(s string) (string, error) {
 	return name, nil
 }
 
+// SupportsKeyAlgorithm reports the key specifications accepted by each CA order adapter.
+func SupportsKeyAlgorithm(provider, algorithm string) bool {
+	switch provider {
+	case "aliyun":
+		return slices.Contains([]string{"RSA2048", "RSA3072", "EC256"}, algorithm)
+	case "ucloud":
+		return slices.Contains([]string{"RSA2048", "RSA3072", "EC256", "EC384"}, algorithm)
+	case "tencentcloud", "volcengine":
+		return algorithm == "RSA2048" || algorithm == "EC256"
+	default:
+		return false
+	}
+}
+
 func (r *OrderRequest) validate(provider string) error {
 	name, err := canonicalDomain(r.Domain)
-	algorithmOK := r.Algorithm == "RSA2048" || r.Algorithm == "EC256" ||
-		(r.Algorithm == "RSA3072" && (provider == "aliyun" || provider == "ucloud")) ||
-		(r.Algorithm == "EC384" && provider == "ucloud")
-	if err != nil || !algorithmOK {
+	if err != nil || !SupportsKeyAlgorithm(provider, r.Algorithm) {
 		return errInput
 	}
 	r.Domain = name

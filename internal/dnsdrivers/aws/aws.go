@@ -144,26 +144,18 @@ func (p *provider) DNSRecords(ctx context.Context, zone string, page int, filter
 			if !completeSet(set) {
 				return nil, failure
 			}
-			name := strings.ReplaceAll(strings.TrimSuffix(sdk.ToString(set.Name), "."), `\052`, "*")
-			if !strings.Contains(strings.ToLower(name), strings.ToLower(filter)) {
-				continue
-			}
-			row := dns.DNSRecord{Type: string(set.Type), Name: name, TTL: int(sdk.ToInt64(set.TTL)), Line: sdk.ToString(set.SetIdentifier), Status: "active", ReadOnly: readonly(set)}
-			if set.Weight != nil {
-				n := int(*set.Weight)
-				row.Weight = &n
-			}
 			if set.AliasTarget != nil {
-				row.Content = sdk.ToString(set.AliasTarget.DNSName)
-				row.ID = recordID(zone, set, row.Content)
-				rows = append(rows, row)
+				row := recordRow(zone, set, sdk.ToString(set.AliasTarget.DNSName))
+				if strings.Contains(strings.ToLower(row.Name), strings.ToLower(filter)) {
+					rows = append(rows, row)
+				}
 				continue
 			}
 			for _, rr := range set.ResourceRecords {
-				row.Content = sdk.ToString(rr.Value)
-				row.Priority = dnsutil.MXPriority(row.Type, row.Content)
-				row.ID = recordID(zone, set, row.Content)
-				rows = append(rows, row)
+				row := recordRow(zone, set, sdk.ToString(rr.Value))
+				if strings.Contains(strings.ToLower(row.Name), strings.ToLower(filter)) {
+					rows = append(rows, row)
+				}
 			}
 		}
 		if !out.IsTruncated {
@@ -211,6 +203,9 @@ func (p *provider) change(ctx context.Context, zone string, old, next *types.Res
 	if next != nil {
 		changes = append(changes, types.Change{Action: types.ChangeActionCreate, ResourceRecordSet: next})
 	}
+	return p.commitChanges(ctx, zone, changes)
+}
+func (p *provider) commitChanges(ctx context.Context, zone string, changes []types.Change) error {
 	_, err := p.client.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{HostedZoneId: &zone, ChangeBatch: &types.ChangeBatch{Changes: changes}})
 	if err != nil {
 		return failure
@@ -219,8 +214,8 @@ func (p *provider) change(ctx context.Context, zone string, old, next *types.Res
 }
 
 func rdata(typ types.RRType, value string) string {
-	if typ == types.RRTypeTxt && !strings.HasPrefix(value, `"`) {
-		return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(value) + `"`
+	if typ == types.RRTypeTxt {
+		return dns.QuoteRecordTXT(value)
 	}
 	return value
 }

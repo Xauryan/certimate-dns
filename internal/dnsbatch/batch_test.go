@@ -74,6 +74,8 @@ var zoneScope = scope{provider: "aliyun", access: "access1", zone: "upstream", a
 
 const origin = "example.test"
 
+func allowBatch() error { return nil }
+
 func previewPlan(t *testing.T, db dbx.Builder, p dns.Provider, changes []Change) *Plan {
 	t.Helper()
 	rows, err := zoneRecords(t.Context(), p, zoneScope.zone, origin)
@@ -157,7 +159,7 @@ func TestUncertainCreateReconcilesExactLineWithoutReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := loaded.reconcile(t.Context(), db, p, zoneScope, origin); err != nil {
+	if err := loaded.reconcile(t.Context(), db, p, zoneScope, origin, allowBatch); err != nil {
 		t.Fatal(err)
 	}
 	if p.writes != 1 || loaded.State != "partial" || loaded.Items[0].State != "observed" || loaded.Items[0].ID != "new-1" {
@@ -253,6 +255,12 @@ func TestBoundRoutesScopeBeforeProviderAndPagination(t *testing.T) {
 	add("dnsAccount", map[string]any{"id": account.Id, "accessRef": account.Id})
 	zone := add("dnsZone", map[string]any{"accountRef": account.Id, "providerZoneId": "upstream", "name": origin, "present": true})
 	grant := add("dns_zone_grants", map[string]any{"member": member.Id, "zone": zone.Id, "role": "reader"})
+	second := add("access", map[string]any{"name": "Other DNS batch account", "provider": "aliyun", "config": map[string]string{}})
+	add("dnsAccount", map[string]any{"id": second.Id, "accessRef": second.Id})
+	otherZone := add("dnsZone", map[string]any{"accountRef": second.Id, "providerZoneId": "upstream", "name": origin, "present": true})
+	otherProvider := &replacementProvider{attributedProvider: attributedProvider{batchProvider: batchProvider{rows: []dns.DNSRecord{
+		{ID: "1", Name: "host01." + origin, Type: "TXT", TTL: 300, Content: "other-account-record"},
+	}}}}
 	p := &batchProvider{}
 	for n := 1; n <= 22; n++ {
 		p.rows = append(p.rows, dns.DNSRecord{ID: fmt.Sprint(n), Name: fmt.Sprintf("host%02d.%s", n, origin), Type: "TXT", Content: "synthetic-record", TTL: n})
@@ -264,33 +272,39 @@ func TestBoundRoutesScopeBeforeProviderAndPagination(t *testing.T) {
 	calls := 0
 	Bind(routes.Group("/api"), func(_ context.Context, provider, access string, _ bool) (dns.Provider, error) {
 		calls++
-		if provider != "aliyun" || access != account.Id {
-			return nil, errors.New("wrong account")
+		if provider == "aliyun" {
+			switch access {
+			case account.Id:
+				return p, nil
+			case second.Id:
+				return otherProvider, nil
+			}
 		}
-		return p, nil
+		return nil, errors.New("wrong account")
 	})
 	mux, err := routes.BuildMux()
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := func(token, method, path, body string) struct {
+	type response struct {
 		Code int
 		Data json.RawMessage
-	} {
+	}
+	requestAccount := func(access, token, method, path, body string) response {
 		t.Helper()
-		req := httptest.NewRequest(method, "/api/dns/aliyun/"+account.Id+"/zones/upstream/batch"+path, strings.NewReader(body))
+		req := httptest.NewRequest(method, "/api/dns/aliyun/"+access+"/zones/upstream/batch"+path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", token)
 		res := httptest.NewRecorder()
 		mux.ServeHTTP(res, req)
-		var out struct {
-			Code int
-			Data json.RawMessage
-		}
+		var out response
 		if err := json.Unmarshal(res.Body.Bytes(), &out); err != nil {
 			t.Fatal(err)
 		}
 		return out
+	}
+	request := func(token, method, path, body string) response {
+		return requestAccount(account.Id, token, method, path, body)
 	}
 	if got := request("", "GET", "/features", ""); got.Code != 401 || calls != 0 {
 		t.Fatal("unauthenticated provider access")
@@ -319,7 +333,45 @@ func TestBoundRoutesScopeBeforeProviderAndPagination(t *testing.T) {
 	if got := request(auth, "GET", "/history", ""); got.Code != 404 || calls != 3 {
 		t.Fatal("revoked grant still reached provider")
 	}
-
+	if got := requestAccount(second.Id, auth, "GET", "/search", ""); got.Code != 404 || calls != 3 {
+		t.Fatal("colliding provider zone ID authorized another account")
+	}
+	add("dns_zone_grants", map[string]any{"member": member.Id, "zone": zone.Id, "role": "editor"})
+	add("dns_zone_grants", map[string]any{"member": member.Id, "zone": otherZone.Id, "role": "editor"})
+	p.afterList = nil
+	got = requestAccount(second.Id, auth, "GET", "/features", "")
+	var feature struct{ Edit dns.RecordEditCapabilities }
+	if got.Code != 0 || json.Unmarshal(got.Data, &feature) != nil || !feature.Edit.Rename {
+		t.Fatal("replacement capability missing from scoped account")
+	}
+	changes := `{"changes":[{"action":"replace","id":"1","name":"renamed.example.test","type":"MX","content":"mail.example.test","priority":0}]}`
+	got = requestAccount(second.Id, auth, "POST", "/preview", changes)
+	var review struct {
+		Plan Plan
+		Rows []PreviewRow
+	}
+	if got.Code != 0 || json.Unmarshal(got.Data, &review) != nil || len(review.Rows) != 1 {
+		t.Fatalf("preview did not use the selected account: %+v", got)
+	}
+	row := review.Rows[0]
+	if row.Before == nil || row.Before.Content != "other-account-record" || row.After == nil || row.After.Name != "renamed.example.test" || row.After.Type != "MX" || row.After.Priority == nil || *row.After.Priority != 0 {
+		t.Fatalf("preview did not show the scoped source and effective replacement: %+v", row)
+	}
+	applyPath := "/plans/" + review.Plan.ID + "/apply"
+	confirm := `{"confirm":true,` + changes[1:]
+	if got := request(auth, "POST", applyPath, confirm); got.Code != 404 || p.writes != 0 || otherProvider.writes != 0 {
+		t.Fatal("plan applied through an account with the same remote zone and record ID")
+	}
+	got = request(auth, "GET", "/history", "")
+	var history struct{ Total int }
+	if got.Code != 0 || json.Unmarshal(got.Data, &history) != nil || history.Total != 0 {
+		t.Fatal("plan history crossed account boundaries")
+	}
+	got = requestAccount(second.Id, auth, "POST", applyPath, confirm)
+	var applied Plan
+	if got.Code != 0 || json.Unmarshal(got.Data, &applied) != nil || applied.State != "completed" || applied.Items[0].ID != "replaced-1" || p.writes != 0 || otherProvider.writes != 1 {
+		t.Fatalf("did not verify the replacement in the selected account: %+v", got)
+	}
 }
 
 type attributedProvider struct {
@@ -386,11 +438,11 @@ func TestRichCreateReadbackAndProjection(t *testing.T) {
 		t.Fatal("missing remark was reported as applied")
 	}
 	before := p.writes
-	if err := plan.reconcile(t.Context(), db, p, zoneScope, origin); err != nil || plan.State != "uncertain" || p.writes != before {
+	if err := plan.reconcile(t.Context(), db, p, zoneScope, origin, allowBatch); err != nil || plan.State != "uncertain" || p.writes != before {
 		t.Fatal("reconcile retried or omitted missing metadata")
 	}
 	p.attrs["remark"] = "synthetic note"
-	if err := plan.reconcile(t.Context(), db, p, zoneScope, origin); err != nil || plan.State != "completed" || p.writes != before {
+	if err := plan.reconcile(t.Context(), db, p, zoneScope, origin, allowBatch); err != nil || plan.State != "completed" || p.writes != before {
 		t.Fatal("completed metadata not observed")
 	}
 }

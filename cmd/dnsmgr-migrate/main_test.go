@@ -128,3 +128,109 @@ func TestImportLifecycle(t *testing.T) {
 		t.Fatal("overwrote target metadata")
 	}
 }
+
+func TestPromotionCLI(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CERTIMATE_ADMIN_PASSWORD", "synthetic-test-password")
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: dir})
+	if err := app.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { app.ResetBootstrapState() })
+	if err := app.RunAllMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	c, err := app.FindCollectionByNameOrId("access")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := core.NewRecord(c)
+	a.Set("name", "synthetic")
+	a.Set("provider", "aliyun")
+	if err := app.Save(a); err != nil {
+		t.Fatal(err)
+	}
+	m := dnsmigrate.Manifest{Version: 1, Schema: 1049, Timezone: "UTC", Source: "fixture", Accounts: []dnsmigrate.Account{{ID: 1, Provider: "aliyun"}}, Zones: []dnsmigrate.Zone{{ID: 2, AccountID: 1, Name: "example.test"}}, Related: []dnsmigrate.Related{{Kind: "domain_alias", ID: 7, ParentID: 2, Domain: "alias.test"}, {Kind: "cert_account", ID: 8, State: 1}}}
+	manifest, bindings := filepath.Join(dir, "inventory.json"), filepath.Join(dir, "bindings.json")
+	if err := publish(manifest, &m); err != nil {
+		t.Fatal(err)
+	}
+	b := dnsmigrate.Bindings{Version: 1, Source: "fixture", Accounts: map[int64]string{1: a.Id}}
+	writeBindings := func() {
+		t.Helper()
+		data, err := json.Marshal(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(bindings, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	call := func(op string) (dnsmigrate.Report, error) {
+		t.Helper()
+		var out bytes.Buffer
+		err := run(t.Context(), []string{op, "-dir", dir, "-in", manifest, "-bindings", bindings}, &out)
+		var r dnsmigrate.Report
+		if out.Len() > 0 {
+			if decodeErr := json.Unmarshal(out.Bytes(), &r); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+		}
+		return r, err
+	}
+	count := func() int {
+		t.Helper()
+		var n int
+		if err := app.DB().NewQuery("SELECT COUNT(*) FROM dns_import_promotions").Row(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	writeBindings()
+	base, err := call("import")
+	if err != nil || count() != 0 {
+		t.Fatalf("inventory import: %v", err)
+	}
+	zone := base.Items[1].Target
+	b.Promotions = []dnsmigrate.Promotion{{Kind: "domain_alias", LegacyID: 7, TargetID: zone, Confirm: true}}
+	writeBindings()
+	if r, err := call("dry-run"); err != nil || len(r.Promotions) != 1 || r.Promotions[0].Action != "link" || count() != 0 {
+		t.Fatalf("preview: %v", err)
+	}
+	b.Promotions = append(b.Promotions, dnsmigrate.Promotion{Kind: "cert_account", LegacyID: 8, TargetID: "wrong", Confirm: true})
+	writeBindings()
+	if r, err := call("import"); !errors.Is(err, dnsmigrate.ErrConflict) || r.Conflicts != 1 || count() != 0 {
+		t.Fatalf("conflicted batch: %v", err)
+	}
+	b.Promotions = b.Promotions[:1]
+	writeBindings()
+	if r, err := call("import"); err != nil || r.Promotions[0].Action != "link" || count() != 1 {
+		t.Fatalf("apply: %v", err)
+	}
+	if r, err := call("import"); err != nil || r.Promotions[0].Action != "unchanged" || count() != 1 {
+		t.Fatalf("replay: %v", err)
+	}
+	b.Promotions[0].TargetID = "different"
+	writeBindings()
+	if r, err := call("import"); !errors.Is(err, dnsmigrate.ErrConflict) || r.Conflicts != 1 || count() != 1 {
+		t.Fatalf("binding drift: %v", err)
+	}
+	b.Promotions = nil
+	writeBindings()
+	m.Related[1].Provider = "btpanel"
+	manifest = filepath.Join(dir, "new-inventory.json")
+	if err := publish(manifest, &m); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := call("import"); err != nil || r.Items[3].Action != "refreshStage" || count() != 1 {
+		t.Fatalf("safe enrichment of old staged certificate account: %v", err)
+	}
+	m.Related[1].Provider = "btwin"
+	manifest = filepath.Join(dir, "changed-type.json")
+	if err := publish(manifest, &m); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call("import"); !errors.Is(err, dnsmigrate.ErrConflict) {
+		t.Fatalf("changed established certificate provider: %v", err)
+	}
+}

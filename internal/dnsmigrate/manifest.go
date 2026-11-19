@@ -97,9 +97,10 @@ type Optimize struct {
 	TTL    int    `json:"ttl"`
 }
 type Bindings struct {
-	Version  int              `json:"version"`
-	Source   string           `json:"source"`
-	Accounts map[int64]string `json:"accounts"`
+	Promotions []Promotion      `json:"promotions,omitempty"`
+	Version    int              `json:"version"`
+	Source     string           `json:"source"`
+	Accounts   map[int64]string `json:"accounts"`
 }
 
 func (b Bindings) Validate(m *Manifest) error {
@@ -115,7 +116,7 @@ func (b Bindings) Validate(m *Manifest) error {
 			return fmt.Errorf("binding references unknown account %d", id)
 		}
 	}
-	return nil
+	return b.validatePromotions()
 }
 
 func Decode(r io.Reader, dst any) error {

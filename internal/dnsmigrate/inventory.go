@@ -20,6 +20,7 @@ type Related struct {
 	RR           string `json:"rr,omitempty"`
 	State        int    `json:"state,omitempty"`
 	CategoryName string `json:"categoryName,omitempty"`
+	Provider     string `json:"provider,omitempty"`
 }
 
 type HistoryCounts struct {
@@ -38,7 +39,7 @@ var relatedTables = []struct {
 	{"domain_alias", "domain", "id,did,0,name,'',0", "review alias in target catalog"},
 	{"user", "", "id,0,0,'','',status", "create a target identity and confirm its role"},
 	{"permission", "user", "id,uid,0,domain,COALESCE(sub,''),0", "review member and zone grants"},
-	{"cert_account", "", "id,0,0,'','',deploy", "configure certificate or deployment credentials separately"},
+	{"cert_account", "", "id,0,0,'','',deploy,type", "configure certificate or deployment credentials separately"},
 	{"cert_order", "cert_account", "id,aid,0,'','',status", "review order and certificate transfer"},
 	{"cert_domain", "cert_order", "id,oid,0,domain,'',sort", "review certificate name against order"},
 	{"cert_deploy", "cert_account", "id,aid,oid,'','',active", "review deployment dependencies before creating workflow"},
@@ -54,6 +55,8 @@ func (m *Manifest) readRelated(read tableReader) error {
 			fields := []any{&r.ID, &r.ParentID, &r.OrderID, &r.Domain, &r.RR, &r.State}
 			if r.Kind == "domain_category" {
 				fields = append(fields, &r.CategoryName)
+			} else if r.Kind == "cert_account" {
+				fields = append(fields, &r.Provider)
 			}
 			if err := rows.Scan(fields...); err != nil {
 				return err
@@ -82,6 +85,9 @@ func (m *Manifest) validateRelated(zones map[int64]bool) error {
 			return fmt.Errorf("unknown, invalid or duplicate related object %d", r.ID)
 		}
 		kindIDs[r.ID] = true
+		if r.Provider != "" && (r.Kind != "cert_account" || !identifier.MatchString(r.Provider)) {
+			return fmt.Errorf("invalid provider on %s %d", r.Kind, r.ID)
+		}
 		if (r.Kind == "domain_category") != (r.CategoryName != "") || strings.TrimSpace(r.CategoryName) != r.CategoryName || strings.IndexFunc(r.CategoryName, unicode.IsControl) >= 0 || utf8.RuneCountInString(r.CategoryName) > 50 {
 			return fmt.Errorf("invalid category name on %s %d", r.Kind, r.ID)
 		}

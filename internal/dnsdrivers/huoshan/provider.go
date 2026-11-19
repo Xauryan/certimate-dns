@@ -196,11 +196,7 @@ func (p *provider) DNSRecords(ctx context.Context, zone string, page int, filter
 	}
 	out := dnsutil.Page[dns.DNSRecord](page, *data.TotalCount)
 	for _, r := range data.Records {
-		status := "disabled"
-		if *r.Enable {
-			status = "enabled"
-		}
-		out.Items = append(out.Items, dns.DNSRecord{Priority: dnsutil.MXPriority(r.Type, r.Value), ID: r.RecordID, Type: r.Type, Name: dnsutil.FullName(r.Host, z), Content: r.Value, TTL: r.TTL, Line: r.Line, Status: status, ReadOnly: slices.Contains(r.Tags, "GTMLock"), Weight: r.Weight, Description: r.Remark})
+		out.Items = append(out.Items, r.row(z))
 	}
 	return out, nil
 }
@@ -493,4 +489,12 @@ func (p *provider) SetBatchAttribute(ctx context.Context, zone, id, field, value
 		return dns.ErrInvalidDNSRequest
 	}
 	return p.update(ctx, r)
+}
+
+func (r record) row(zone string) dns.DNSRecord {
+	status := "disabled"
+	if *r.Enable {
+		status = "enabled"
+	}
+	return dns.DNSRecord{Priority: dnsutil.MXPriority(r.Type, r.Value), ID: r.RecordID, Type: r.Type, Name: dnsutil.FullName(r.Host, zone), Content: r.Value, TTL: r.TTL, Line: r.Line, Status: status, ReadOnly: slices.Contains(r.Tags, "GTMLock"), Weight: r.Weight, Description: r.Remark}
 }

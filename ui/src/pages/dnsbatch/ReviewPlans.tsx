@@ -4,9 +4,9 @@ import { Alert, Button, Card, Popconfirm, Space, Table, Typography } from "antd"
 import { dnsRequest } from "@/api/dns";
 import { unwrapErrMsg } from "@/utils/error";
 
-import { type Plan, type PreviewRow, type Review, actionLabel, batchPath, metadataSummary, stateLabel, useLabel } from "./model";
+import { type Plan, type PreviewRow, type Review, actionLabel, metadataSummary, stateLabel, useLabel } from "./model";
 
-type Props = { base: string; review: Review; canWrite: boolean; onPlan: (plan: Plan) => void; onApplied?: () => void };
+type Props = { review: Review; canWrite: boolean; onPlan: (plan: Plan) => void; onApplied?: () => void };
 
 export function ItemTable({ plan, rows, provider }: { plan: Plan; rows?: PreviewRow[]; provider?: string }) {
   const l = useLabel();
@@ -26,6 +26,11 @@ export function ItemTable({ plan, rows, provider }: { plan: Plan; rows?: Preview
                 title: l("原值", "Before"),
                 render: (_: unknown, row: { preview?: PreviewRow }) => {
                   const old = row.preview?.before;
+                  if (old && row.preview?.change.action === "replace") {
+                    return [old.name, old.type, old.content, "TTL " + old.ttl, metadataSummary({ priority: old.priority }, l, provider)]
+                      .filter(Boolean)
+                      .join(" · ");
+                  }
                   return row.preview?.previousValue ?? (old ? old.content + " (TTL " + old.ttl + ")" : "—");
                 },
               },
@@ -34,6 +39,9 @@ export function ItemTable({ plan, rows, provider }: { plan: Plan; rows?: Preview
                 render: (_: unknown, row: { preview?: PreviewRow }) => {
                   const c = row.preview?.change;
                   if (!c || c.action === "delete") return "—";
+                  const after = row.preview?.after;
+                  if (after)
+                    return [after.name, after.type, after.content, "TTL " + after.ttl, metadataSummary(after, l, provider)].filter(Boolean).join(" · ");
                   return c.value ?? [c.type, c.content, "TTL " + c.ttl, metadataSummary(c, l, provider)].filter(Boolean).join(" · ");
                 },
               },
@@ -45,13 +53,13 @@ export function ItemTable({ plan, rows, provider }: { plan: Plan; rows?: Preview
   );
 }
 
-export default function ReviewPlan({ base, review, canWrite, onPlan, onApplied }: Props) {
+export default function ReviewPlan({ review, canWrite, onPlan, onApplied }: Props) {
   const l = useLabel();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const locked = useRef(false);
   const { plan, rows, zone } = review;
-  const path = batchPath(base, zone) + "/plans/" + encodeURIComponent(plan.id);
+  const path = zone.key + "/batch/plans/" + encodeURIComponent(plan.id);
   async function execute() {
     if (locked.current || plan.state !== "preview" || !canWrite) return;
     locked.current = true;
@@ -75,7 +83,7 @@ export default function ReviewPlan({ base, review, canWrite, onPlan, onApplied }
     }
   }
   return (
-    <Card size="small" title={[zone.name, review.batch].filter(Boolean).join(" · ")}>
+    <Card size="small" title={[zone.label, review.batch].filter(Boolean).join(" · ")}>
       <Space orientation="vertical" style={{ width: "100%" }}>
         <Typography.Text>
           {stateLabel(plan.state, l)} · {plan.items.length} {l("条记录", "records")}
@@ -91,11 +99,11 @@ export default function ReviewPlan({ base, review, canWrite, onPlan, onApplied }
             )}
           />
         )}
-        <ItemTable plan={plan} rows={rows} provider={decodeURIComponent(base.split("/")[3])} />
+        <ItemTable plan={plan} rows={rows} provider={zone.provider} />
         {plan.state === "preview" && canWrite && (
           <Popconfirm
             title={l("执行此域名的全部预览变更？", "Apply the previewed changes to this zone?")}
-            description={zone.name + " · " + plan.items.length + " " + l("条记录", "records")}
+            description={zone.label + " · " + plan.items.length + " " + l("条记录", "records")}
             okText={l("确认执行", "Confirm changes")}
             cancelText={l("取消", "Cancel")}
             onConfirm={execute}

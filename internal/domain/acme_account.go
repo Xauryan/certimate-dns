@@ -14,6 +14,7 @@ type ACMEAccount struct {
 	Meta
 	CA               string        `db:"ca"          json:"ca"`
 	Email            string        `db:"email"       json:"email"`
+	GoogleProjectID  string        `db:"googleProjectId" json:"-"`
 	PrivateKey       string        `db:"privateKey"  json:"privateKey"`
 	ACMEDirectoryUrl string        `db:"acmeDirUrl"  json:"acmeDirUrl"`
 	ACMEAccountUrl   string        `db:"acmeAcctUrl" json:"acmeAcctUrl"`

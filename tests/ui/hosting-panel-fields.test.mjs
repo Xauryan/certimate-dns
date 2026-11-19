@@ -6,6 +6,15 @@ import { panelAccessFields, panelDeploymentFields, panelFieldsSchema } from "../
 const schema = (fields) => panelFieldsSchema(fields, "Enter one credential.");
 const panel = { serverUrl: "https://panel.example.test/", username: "fixture-user" };
 
+test("AMH uses panel login and requires an explicit environment and site", () => {
+  const access = schema(panelAccessFields.amh);
+  assert.ok(access.safeParse({ ...panel, password: "fixture-password" }).success);
+  assert.equal(access.safeParse({ ...panel, apiKey: "fixture-key" }).success, false);
+  const target = schema(panelDeploymentFields.amh);
+  assert.ok(target.safeParse({ environment: "nginx-1", target: "site1" }).success);
+  assert.equal(target.safeParse({ target: "site1" }).success, false);
+});
+
 test("Kangle accepts one authentication method and associates errors with both credential fields", () => {
   const kangle = schema(panelAccessFields.kangle);
   assert.equal(kangle.safeParse({ ...panel, password: "fixture-password" }).success, true);
@@ -30,7 +39,7 @@ test("deployment parameters preserve required identifiers, optional Kangle and L
     const s = schema(fields);
     const required = fields.filter((field) => !field.optional);
     assert.equal(s.safeParse({}).success, !required.length, provider);
-    const sample = Object.fromEntries(required.map((field) => [field.name, "1"]));
+    const sample = Object.fromEntries(required.map((field) => [field.name, field.kind === "sniTarget" ? "site.example.test:8443" : "1"]));
     assert.equal(s.safeParse(sample).success, true, provider);
   }
   assert.equal(schema(panelDeploymentFields.kuocai).safeParse({ target: "site" }).success, false);
@@ -44,4 +53,14 @@ test("fnOS port defaults to 22 and validates the OpenSSH SHA256 fingerprint", ()
   assert.equal(fnos.safeParse(access).success, true);
   assert.equal(fnos.safeParse({ ...access, port: 70000 }).success, false);
   assert.equal(fnos.safeParse({ ...access, hostKeyFingerprint: "unverified" }).success, false);
+});
+
+test("IIS requires one named hostname with an optional valid SNI port", () => {
+  const iis = schema(panelDeploymentFields.iis);
+  for (const value of ["site.example.test", "Site.Example.Test.:8443"]) {
+    assert.ok(iis.safeParse({ target: value }).success, value);
+  }
+  for (const value of ["192.0.2.2", "*.example.test", "site.example.test:0", "site.example.test:65536", "site.example.test:443;ignored"]) {
+    assert.equal(iis.safeParse({ target: value }).success, false, value);
+  }
 });

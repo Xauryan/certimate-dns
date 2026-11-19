@@ -23,9 +23,17 @@ interface Capabilities {
   specialTTLs?: number[];
   export?: boolean;
 }
+type EditCapabilities = { rename: boolean; retype: boolean; priority: boolean };
+type RecordPage = Page<DNSRecord> & { edit?: EditCapabilities };
 type ZoneDetails = { minTTL?: number; lines?: { id: string; name: string }[] };
 
 type Fields = Pick<DNSRecord, "name" | "type" | "content" | "ttl" | "line" | "priority" | "description" | "weight">;
+type SelectedRecord = { snapshot: DNSRecord; fields: Fields; edit?: EditCapabilities; query: URLSearchParams };
+
+function editableFields(record: DNSRecord, edit?: EditCapabilities): Fields {
+  const mx = edit?.priority && record.type === "MX" && record.content.match(/^(\d+)[ \t]+(\S+)$/);
+  return mx ? { ...record, content: mx[2], priority: record.priority ?? Number(mx[1]) } : record;
+}
 
 function useDNSData<T>(url?: string, revision = 0) {
   const [response, setResponse] = useState<{ url: string; revision: number; data?: T; error?: string }>();
@@ -54,20 +62,21 @@ type RecordViewProps = {
   canWrite: boolean;
   back: () => void;
   adminAccess?: string;
+  zonePage?: number;
 };
 
-function RecordList({ base, zone, provider, canWrite, adminAccess }: Omit<RecordViewProps, "back">) {
+function RecordList({ base, zone, provider, canWrite, adminAccess, zonePage }: Omit<RecordViewProps, "back">) {
   const { t } = useTranslation();
   const { message, modal } = App.useApp();
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState("");
   const [revision, setRevision] = useState(0);
-  const [editor, setEditor] = useState<DNSRecord | "new" | null>(null);
+  const [editor, setEditor] = useState<SelectedRecord | "new" | null>(null);
   const [busy, setBusy] = useState(false);
   const writing = useRef(false);
   const [exporting, setExporting] = useState(false);
   const cf = provider === "cloudflare";
-  const capability = useDNSData<Capabilities>("/api/dns/capabilities/" + encodeURIComponent(provider), revision);
+  const capability = useDNSData<Capabilities>("/api/dns/capabilities/" + encodeURIComponent(provider));
   const features = capability?.data;
   const details = useDNSData<ZoneDetails>(editor && features?.line ? base + "/zones/" + encodeURIComponent(zone.id) + "/advanced/details" : undefined);
   const minTTL = Math.max(features?.minTTL ?? 1, details?.data?.minTTL ?? 0);
@@ -76,7 +85,8 @@ function RecordList({ base, zone, provider, canWrite, adminAccess }: Omit<Record
   const ttlHelp = t("dns.ttlRange", { min: minTTL, max: maxTTL }) + (specialTTLs.length ? " " + t("dns.ttlSpecial", { values: specialTTLs.join(", ") }) : "");
   const types = features?.types ?? [];
   const records = base + "/zones/" + encodeURIComponent(zone.id) + "/records";
-  const response = useDNSData<Page<DNSRecord>>(records + "?" + new URLSearchParams({ page: String(page), name: filter }), revision);
+  const response = useDNSData<RecordPage>(records + "?" + new URLSearchParams({ page: String(page), name: filter }), revision);
+  const edit = editor && editor !== "new" ? editor.edit : undefined;
   const refresh = () => setRevision((value) => value + 1);
 
   async function save(fields: Fields) {
@@ -87,7 +97,25 @@ function RecordList({ base, zone, provider, canWrite, adminAccess }: Omit<Record
       if (editor === "new") {
         const payload = Object.fromEntries(Object.entries(fields).filter(([, value]) => value != null && value !== ""));
         await dnsRequest(records, "POST", payload);
-      } else await dnsRequest(records + "/" + encodeURIComponent(editor.id), "PATCH", { content: fields.content, ttl: fields.ttl });
+      } else {
+        const changes: Partial<Fields> = {};
+        if (edit?.rename && fields.name !== editor.fields.name) changes.name = fields.name;
+        if (edit?.retype && fields.type !== editor.fields.type) changes.type = fields.type;
+        if (
+          edit?.priority &&
+          features?.priorityTypes?.includes(fields.type) &&
+          fields.priority != null &&
+          (changes.type || fields.priority !== editor.fields.priority)
+        ) {
+          changes.priority = fields.priority;
+        }
+        const rich = Object.keys(changes).length > 0;
+        await dnsRequest(records + "/" + encodeURIComponent(editor.snapshot.id) + (rich ? "?" + editor.query : ""), "PATCH", {
+          content: fields.content,
+          ttl: fields.ttl,
+          ...(rich ? { ...changes, expected: editor.snapshot } : {}),
+        });
+      }
       setEditor(null);
       message.success(t("dns.saved"));
     } catch (error) {
@@ -194,7 +222,14 @@ function RecordList({ base, zone, provider, canWrite, adminAccess }: Omit<Record
                   render: (_: unknown, row: DNSRecord) => (
                     <Space>
                       {!row.readOnly && types.includes(row.type) && (
-                        <Button type="link" onClick={() => setEditor(row)}>
+                        <Button
+                          type="link"
+                          onClick={() => {
+                            const edit = response?.data?.edit;
+                            const query = new URLSearchParams({ page: String(page), name: filter, zonePage: String(zonePage ?? 1) });
+                            setEditor({ snapshot: row, fields: editableFields(row, edit), edit, query });
+                          }}
+                        >
                           {t("dns.edit")}
                         </Button>
                       )}
@@ -226,23 +261,28 @@ function RecordList({ base, zone, provider, canWrite, adminAccess }: Omit<Record
             id="dns-record-editor"
             layout="vertical"
             preserve={false}
-            initialValues={editor === "new" ? { type: types[0], ttl: features?.defaultTTL } : editor}
+            initialValues={editor === "new" ? { type: types[0], ttl: features?.defaultTTL } : editor.fields}
             onFinish={save}
           >
             <Form.Item name="type" label={t("dns.type")} rules={[{ required: true }]}>
-              <Select disabled={editor !== "new"} options={types.map((value) => ({ value }))} />
+              <Select disabled={editor !== "new" && !edit?.retype} options={types.map((value) => ({ value }))} />
             </Form.Item>
             <Form.Item name="name" label={t("dns.name")} rules={[{ required: true, whitespace: true }]}>
-              <Input disabled={editor !== "new"} placeholder={"www." + zone.name} />
+              <Input disabled={editor !== "new" && !edit?.rename} placeholder={"www." + zone.name} />
             </Form.Item>
             <Form.Item name="content" label={t("dns.content")} rules={[{ required: true }]}>
               <Input.TextArea autoSize />
             </Form.Item>
-            {editor === "new" && features?.priorityTypes?.length ? (
+            {(editor === "new" || edit?.priority) && features?.priorityTypes?.length ? (
               <Form.Item noStyle shouldUpdate={(previous, next) => previous.type !== next.type}>
                 {({ getFieldValue }) =>
                   features.priorityTypes?.includes(getFieldValue("type")) ? (
-                    <Form.Item name="priority" label={t("dns.priority")} preserve={false}>
+                    <Form.Item
+                      name="priority"
+                      label={t("dns.priority")}
+                      preserve={false}
+                      rules={[{ required: editor !== "new" && editor.fields.type !== getFieldValue("type") }]}
+                    >
                       <InputNumber min={0} max={65535} precision={0} />
                     </Form.Item>
                   ) : null
@@ -344,7 +384,10 @@ function Zones({ access, provider }: { access: string; provider: string }) {
         ? { id: item.zoneId, name: item.name, status: item.status }
         : undefined
       : response?.data?.result.find((z) => z.id === zoneId);
-    if (zone) return <Records key={zone.id} base={base} zone={zone} provider={provider} canWrite adminAccess={access} back={() => setSelection(page)} />;
+    if (zone)
+      return (
+        <Records key={zone.id} base={base} zone={zone} provider={provider} canWrite adminAccess={access} zonePage={page} back={() => setSelection(page)} />
+      );
     if (!catalog && !response) return <Spin />;
     return (
       <Alert

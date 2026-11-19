@@ -198,8 +198,8 @@ func (p *provider) current(ctx context.Context, zone, id string) (*record, error
 }
 
 func rdata(typ, value string) string {
-	if typ == "TXT" && !strings.HasPrefix(value, `"`) {
-		return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(value) + `"`
+	if typ == "TXT" {
+		return dns.QuoteRecordTXT(value)
 	}
 	return value
 }

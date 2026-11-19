@@ -103,7 +103,7 @@ func (p *provider) DNSRecords(ctx context.Context, id string, page int, filter s
 		if r.NSDomain != nil && r.NSDomain.ID != "" && r.NSDomain.ID != z.ID {
 			return nil, selfhostutil.ErrProvider
 		}
-		result.Items = append(result.Items, dns.DNSRecord{ID: r.ID.String(), Type: r.Type, Name: dnsutil.FullName(r.Name, z.Name), Content: r.content(), Weight: &r.Weight, Priority: r.priority(), Description: r.Description, TTL: r.TTL, Line: strings.Join(r.codes(), ","), Status: r.status()})
+		result.Items = append(result.Items, r.dns(z.Name))
 	}
 	return result, nil
 }
@@ -117,6 +117,9 @@ func (p *provider) record(ctx context.Context, zone, id string) (*nsRecord, erro
 	if err != nil {
 		return nil, err
 	}
+	return p.recordInZone(ctx, z, id, n)
+}
+func (p *provider) recordInZone(ctx context.Context, z *nsDomain, id string, n int64) (*nsRecord, error) {
 	var r struct{ NSRecord *nsRecord }
 	if err := p.call(ctx, "/NSRecordService/findNSRecord", map[string]int64{"nsRecordId": n}, &r); err != nil {
 		return nil, err

@@ -212,18 +212,16 @@
     },
     "socials": {
       "document": "文档",
-      "github": "GitHub",
-      "telegram": "Telegram",
-      "donate": "捐赠"
+      "github": "GitHub"
     },
     "feedback": {
-      "title": "帮助我们改进 Certimate",
-      "subtitle": "告诉我们如何让 Certimate 为你更好地服务。",
+      "title": "帮助我们改进 Certimate DNS",
+      "subtitle": "报告问题或提出改进建议。",
       "button": "意见反馈"
     },
     "contributors": {
-      "title": "贡献者",
-      "tips": "感谢所有贡献者对本项目做出的贡献。"
+      "title": "上游 Certimate 贡献者",
+      "tips": "感谢为 Certimate 做出贡献的每一位开发者。"
     }
   }
 }

@@ -119,24 +119,11 @@ func (p *provider) DNSRecords(ctx context.Context, zone string, page int, filter
 		if !strings.Contains(strings.ToLower(row.Host), strings.ToLower(filter)) {
 			continue
 		}
-		content := row.Value
-		switch row.Type {
-		case "MX":
-			content = strings.TrimSpace(row.Distance + " " + row.Value)
-		case "SRV":
-			if fields := strings.SplitN(content, ":", 3); len(fields) == 3 {
-				content = strings.Join([]string{row.Distance, fields[0], fields[1], fields[2]}, " ")
-			}
-		case "CAA":
-			if fields := strings.SplitN(content, ":", 3); len(fields) == 3 {
-				flag, err := strconv.ParseUint(fields[0], 10, 8)
-				if err != nil {
-					return nil, registrarutil.ErrInventory
-				}
-				content = registrarutil.FormatCAA(int(flag), fields[1], fields[2])
-			}
+		rec, err := row.view()
+		if err != nil {
+			return nil, err
 		}
-		items = append(items, dns.DNSRecord{ID: row.ID, Type: row.Type, Priority: dnsutil.MXPriority(row.Type, content), Name: row.Host, Content: content, TTL: row.TTL, Line: "default", Status: "active"})
+		items = append(items, rec)
 	}
 	return dnsutil.SlicePage(items, page)
 }
@@ -258,4 +245,25 @@ func (p *provider) DeleteDNSRecord(ctx context.Context, zone, id string) (string
 		return "", err
 	}
 	return id, nil
+}
+
+func (row record) view() (dns.DNSRecord, error) {
+	content := row.Value
+	switch row.Type {
+	case "MX":
+		content = strings.TrimSpace(row.Distance + " " + row.Value)
+	case "SRV":
+		if fields := strings.SplitN(content, ":", 3); len(fields) == 3 {
+			content = strings.Join([]string{row.Distance, fields[0], fields[1], fields[2]}, " ")
+		}
+	case "CAA":
+		if fields := strings.SplitN(content, ":", 3); len(fields) == 3 {
+			flag, err := strconv.ParseUint(fields[0], 10, 8)
+			if err != nil {
+				return dns.DNSRecord{}, registrarutil.ErrInventory
+			}
+			content = registrarutil.FormatCAA(int(flag), fields[1], fields[2])
+		}
+	}
+	return dns.DNSRecord{ID: row.ID, Type: row.Type, Priority: dnsutil.MXPriority(row.Type, content), Name: row.Host, Content: content, TTL: row.TTL, Line: "default", Status: "active"}, nil
 }

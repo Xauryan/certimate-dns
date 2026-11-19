@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-
+	"slices"
 	"strings"
 
 	"github.com/pocketbase/dbx"
@@ -32,19 +32,22 @@ type Item struct {
 	definition   *dnsautomation.Definition
 }
 type Report struct {
-	Version   int            `json:"version"`
-	Source    string         `json:"source"`
-	Items     []Item         `json:"items"`
-	Conflicts int            `json:"conflicts"`
-	History   *HistoryCounts `json:"historyCounts,omitempty"`
+	Promotions []PromotionResult `json:"promotions,omitempty"`
+	Version    int               `json:"version"`
+	Source     string            `json:"source"`
+	Items      []Item            `json:"items"`
+	Conflicts  int               `json:"conflicts"`
+	History    *HistoryCounts    `json:"historyCounts,omitempty"`
 }
 
 type planner struct {
-	ctx      context.Context
-	db       dbx.Builder
-	manifest *Manifest
-	bindings Bindings
-	report   Report
+	itemsByKey map[sourceKey]Item
+	selected   map[sourceKey]string
+	ctx        context.Context
+	db         dbx.Builder
+	manifest   *Manifest
+	bindings   Bindings
+	report     Report
 }
 
 func (p *planner) item(kind string, id int64, data any) Item {
@@ -72,7 +75,17 @@ func (p *planner) finish(i *Item, exists bool) error {
 	err := p.db.NewQuery("SELECT digest,target_id,disposition FROM dns_import_items WHERE source={:s} AND kind={:k} AND legacy_id={:id}").Bind(dbx.Params{"s": p.manifest.Source, "k": i.Kind, "id": i.Legacy}).WithContext(p.ctx).One(&saved)
 	switch {
 	case err == nil && i.Action != "conflict":
-		if saved.Digest != i.digest || saved.Target != i.Target {
+		if row, ok := i.details.(Related); ok && row.Kind == "cert_account" && row.Provider != "" && saved.Disposition == "stage" && i.Action == "stage" && saved.Target == i.Target && saved.Digest != i.digest {
+			// Earlier manifests omitted the credential-free certificate provider ID.
+			// Only this additive enrichment of an otherwise identical staged row is permitted.
+			row.Provider = ""
+			if saved.Digest == hash([]any{row, i.Target, i.AccountID, i.ProviderZone, p.manifest.Timezone}) {
+				i.Action = "refreshStage"
+				i.Reason = "record certificate provider for reviewed mappings"
+			} else {
+				i.conflict("source or binding changed since first import")
+			}
+		} else if saved.Digest != i.digest || saved.Target != i.Target {
 			i.conflict("source or binding changed since first import")
 		} else if (saved.Disposition == "stage") != (i.Action == "stage") {
 			i.conflict("previous mapping requires review")
@@ -92,7 +105,12 @@ func (p *planner) finish(i *Item, exists bool) error {
 	return nil
 }
 
-func Plan(ctx context.Context, db dbx.Builder, m *Manifest, b Bindings) (*Report, error) {
+func Plan(ctx context.Context, db dbx.Builder, input *Manifest, b Bindings) (*Report, error) {
+	copy := *input
+	copy.Zones = slices.Clone(input.Zones)
+	copy.Tasks = slices.Clone(input.Tasks)
+	copy.Related = slices.Clone(input.Related)
+	m := &copy
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
@@ -275,6 +293,9 @@ func Plan(ctx context.Context, db dbx.Builder, m *Manifest, b Bindings) (*Report
 			return nil, err
 		}
 	}
+	if err := p.planPromotions(); err != nil {
+		return nil, err
+	}
 	return &p.report, nil
 }
 
@@ -340,12 +361,26 @@ func Apply(ctx context.Context, app core.App, m *Manifest, b Bindings) (*Report,
 			if err != nil {
 				return err
 			}
+			if i.Action == "refreshStage" {
+				result, err := tx.DB().NewQuery(`UPDATE dns_import_items SET details={:details},digest={:digest} WHERE source={:s} AND kind={:k} AND legacy_id={:id} AND disposition='stage'`).Bind(dbx.Params{"s": m.Source, "k": i.Kind, "id": i.Legacy, "details": string(data), "digest": i.digest}).WithContext(ctx).Execute()
+				if err != nil {
+					return err
+				}
+				affected, err := result.RowsAffected()
+				if err != nil {
+					return err
+				}
+				if affected != 1 {
+					return ErrConflict
+				}
+				continue
+			}
 			_, err = tx.DB().NewQuery(`INSERT INTO dns_import_items(source,kind,legacy_id,target_id,digest,disposition,details) VALUES({:s},{:k},{:id},{:target},{:digest},{:disposition},{:details})`).Bind(dbx.Params{"s": m.Source, "k": i.Kind, "id": i.Legacy, "target": i.Target, "digest": i.digest, "disposition": i.Action, "details": string(data)}).WithContext(ctx).Execute()
 			if err != nil {
 				return err
 			}
 		}
-		return nil
+		return report.applyPromotions(ctx, tx)
 	})
 	return report, err
 }

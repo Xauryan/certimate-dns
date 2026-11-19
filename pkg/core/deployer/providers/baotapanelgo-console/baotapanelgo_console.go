@@ -66,8 +66,8 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 		SSLKey:    lo.ToPtr(privkeyPEM),
 		SSLPem:    lo.ToPtr(certPEM),
 	}
-	configSetPanelSSLResp, err := d.sdkClient.ConfigSetPanelSSLWithContext(ctx, configSetPanelSSLReq)
-	d.logger.Debug("sdk request 'config.SetPanelSSL'", slog.Any("request", configSetPanelSSLReq), slog.Any("response", configSetPanelSSLResp))
+	_, err := d.sdkClient.ConfigSetPanelSSLWithContext(ctx, configSetPanelSSLReq)
+	d.logger.Debug("sdk request 'config.SetPanelSSL'")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute sdk request 'config.SetPanelSSL': %w", err)
 	}

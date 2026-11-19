@@ -25,7 +25,7 @@ var registrationSg singleflight.Group
 type ACMEAccount = domain.ACMEAccount
 
 type acmeAccountRepository interface {
-	GetByCAAndEmail(ctx context.Context, ca, caDirUrl, email string) (*ACMEAccount, error)
+	GetByCAAndEmail(ctx context.Context, ca, caDirUrl, email, googleProjectID string) (*ACMEAccount, error)
 	Save(ctx context.Context, acmeAccount *ACMEAccount) (*ACMEAccount, error)
 }
 
@@ -105,7 +105,7 @@ func acquireACMEAccount(ctx context.Context, config *ACMEConfig, email string, d
 		return nil, fmt.Errorf("the email is empty")
 	}
 
-	key := fmt.Sprintf("%s|%s|%s", config.CAProvider, config.CADirUrl, email)
+	key := fmt.Sprintf("%s|%s|%s|%s", config.CAProvider, config.CADirUrl, email, config.googleProjectID())
 	resultCh := registrationSg.DoChan(key, func() (any, error) {
 		return registerACMEAccount(ctx, deps, config, email)
 	})
@@ -122,7 +122,7 @@ func acquireACMEAccount(ctx context.Context, config *ACMEConfig, email string, d
 }
 
 func registerACMEAccount(ctx context.Context, deps *acmeRegistrationDeps, config *ACMEConfig, email string) (*ACMEAccount, error) {
-	account, err := deps.accountRepo.GetByCAAndEmail(ctx, config.CAProvider.String(), config.CADirUrl, email)
+	account, err := deps.accountRepo.GetByCAAndEmail(ctx, config.CAProvider.String(), config.CADirUrl, email, config.googleProjectID())
 	if err != nil {
 		if !domain.IsRecordNotFoundError(err) {
 			return nil, fmt.Errorf("failed to get acme account record: %w", err)
@@ -146,6 +146,7 @@ func registerACMEAccount(ctx context.Context, deps *acmeRegistrationDeps, config
 	account = &ACMEAccount{
 		CA:               config.CAProvider.String(),
 		Email:            email,
+		GoogleProjectID:  config.googleProjectID(),
 		PrivateKey:       keyPEM,
 		ACMEDirectoryUrl: config.CADirUrl,
 	}
@@ -156,7 +157,7 @@ func registerACMEAccount(ctx context.Context, deps *acmeRegistrationDeps, config
 	}
 
 	var eab *eabCredential
-	if client.ExternalAccountRequired() {
+	if client.ExternalAccountRequired() || config.CAProvider == domain.CAProviderTypeGoogleTrustServices {
 		eab, err = resolveEABCredentialsForRegistration(ctx, deps, config, email)
 		if err != nil {
 			return nil, err
@@ -165,6 +166,9 @@ func registerACMEAccount(ctx context.Context, deps *acmeRegistrationDeps, config
 
 	regres, regerr := client.Register(ctx, eab)
 	if regerr != nil {
+		if config.googleEAB != nil {
+			return nil, fmt.Errorf("failed to register a Google Public CA account with the project EAB key")
+		}
 		return nil, fmt.Errorf("failed to register acme account: %w", regerr)
 	}
 
@@ -187,7 +191,12 @@ func resolveEABCredentialsForRegistration(ctx context.Context, deps *acmeRegistr
 	}
 
 	if keyId == "" && hmacEncoded == "" {
-		provider := deps.findEABProvider(config.CAProvider)
+		var provider ACMEEABProvider
+		if config.googleEAB != nil {
+			provider = config.googleEAB
+		} else {
+			provider = deps.findEABProvider(config.CAProvider)
+		}
 		if provider == nil {
 			return nil, fmt.Errorf("missing or invalid eab kid")
 		}

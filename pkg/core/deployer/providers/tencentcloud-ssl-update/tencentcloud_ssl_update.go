@@ -2,6 +2,7 @@ package tencentcloudsslupdate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -43,10 +44,11 @@ type DeployerConfig struct {
 }
 
 type Deployer struct {
-	config     *DeployerConfig
-	logger     *slog.Logger
-	sdkClient  *tcssl.Client
-	sdkCertmgr core.Certmgr
+	config       *DeployerConfig
+	logger       *slog.Logger
+	sdkClient    *tcssl.Client
+	sdkCertmgr   core.Certmgr
+	pollInterval time.Duration
 }
 
 var _ Provider = (*Deployer)(nil)
@@ -72,10 +74,11 @@ func NewDeployer(config *DeployerConfig) (*Deployer, error) {
 	}
 
 	return &Deployer{
-		config:     config,
-		logger:     slog.Default(),
-		sdkClient:  client,
-		sdkCertmgr: pcertmgr,
+		config:       config,
+		logger:       slog.Default(),
+		sdkClient:    client,
+		sdkCertmgr:   pcertmgr,
+		pollInterval: 10 * time.Second,
 	}, nil
 }
 
@@ -115,9 +118,11 @@ func (d *Deployer) executeUpdateCertificateInstance(ctx context.Context, certPEM
 	upres, err := d.sdkCertmgr.Upload(ctx, certPEM, privkeyPEM)
 	if err != nil {
 		return fmt.Errorf("failed to upload certificate file: %w", err)
-	} else {
-		d.logger.Info("ssl certificate uploaded", slog.Any("result", upres))
 	}
+	if upres == nil || upres.CertId == "" {
+		return errors.New("Tencent Cloud returned no uploaded certificate ID")
+	}
+	d.logger.Info("ssl certificate uploaded")
 
 	// 一键更新新旧证书资源
 	// REF: https://cloud.tencent.com/document/product/400/91649
@@ -130,12 +135,13 @@ func (d *Deployer) executeUpdateCertificateInstance(ctx context.Context, certPEM
 		updateCertificateInstanceReq.ResourceTypes = common.StringPtrs(d.config.ResourceProducts)
 		updateCertificateInstanceReq.ResourceTypesRegions = wrapResourceProductRegions(d.config.ResourceProducts, d.config.ResourceRegions)
 		updateCertificateInstanceResp, err := d.sdkClient.UpdateCertificateInstanceWithContext(ctx, updateCertificateInstanceReq)
-		d.logger.Debug("sdk request 'ssl.UpdateCertificateInstance'", slog.Any("request", updateCertificateInstanceReq), slog.Any("response", updateCertificateInstanceResp))
+		d.logger.Debug("sdk request 'ssl.UpdateCertificateInstance'")
 		if err != nil {
-			return false, fmt.Errorf("failed to execute sdk request 'ssl.UpdateCertificateInstance': %w", err)
+			return false, safeOperationError(ctx, "Tencent Cloud did not confirm the certificate update")
 		}
 
-		if updateCertificateInstanceResp.Response.DeployStatus == nil || updateCertificateInstanceResp.Response.DeployRecordId == nil {
+		if updateCertificateInstanceResp == nil || updateCertificateInstanceResp.Response == nil ||
+			updateCertificateInstanceResp.Response.DeployStatus == nil || updateCertificateInstanceResp.Response.DeployRecordId == nil {
 			return false, fmt.Errorf("unexpected deployment job status")
 		} else if *updateCertificateInstanceResp.Response.DeployRecordId > 0 {
 			deployRecordId = fmt.Sprintf("%d", *updateCertificateInstanceResp.Response.DeployRecordId)
@@ -143,7 +149,7 @@ func (d *Deployer) executeUpdateCertificateInstance(ctx context.Context, certPEM
 		}
 
 		return false, nil
-	}, 10*time.Second); err != nil {
+	}, d.pollInterval); err != nil {
 		return err
 	}
 
@@ -154,13 +160,13 @@ func (d *Deployer) executeUpdateCertificateInstance(ctx context.Context, certPEM
 		describeHostUpdateRecordDetailReq.DeployRecordId = common.StringPtr(deployRecordId)
 		describeHostUpdateRecordDetailReq.Limit = common.StringPtr("200")
 		describeHostUpdateRecordDetailResp, err := d.sdkClient.DescribeHostUpdateRecordDetailWithContext(ctx, describeHostUpdateRecordDetailReq)
-		d.logger.Debug("sdk request 'ssl.DescribeHostUpdateRecordDetail'", slog.Any("request", describeHostUpdateRecordDetailReq), slog.Any("response", describeHostUpdateRecordDetailResp))
+		d.logger.Debug("sdk request 'ssl.DescribeHostUpdateRecordDetail'")
 		if err != nil {
-			return false, fmt.Errorf("failed to execute sdk request 'ssl.DescribeHostUpdateRecordDetail': %w", err)
+			return false, safeOperationError(ctx, "Could not read the Tencent Cloud certificate update status")
 		}
 
 		var pendingCount, runningCount, succeededCount, failedCount, totalCount int64
-		if describeHostUpdateRecordDetailResp.Response.TotalCount == nil {
+		if describeHostUpdateRecordDetailResp == nil || describeHostUpdateRecordDetailResp.Response == nil || describeHostUpdateRecordDetailResp.Response.TotalCount == nil {
 			return false, fmt.Errorf("unexpected deployment job status")
 		} else {
 			pendingCount = lo.FromPtr(describeHostUpdateRecordDetailResp.Response.PendingTotalCount)
@@ -179,7 +185,7 @@ func (d *Deployer) executeUpdateCertificateInstance(ctx context.Context, certPEM
 
 		d.logger.Info(fmt.Sprintf("waiting for deployment job completion (pending: %d, running: %d, succeeded: %d, failed: %d, total: %d) ...", pendingCount, runningCount, succeededCount, failedCount, totalCount))
 		return false, nil
-	}, 10*time.Second); err != nil {
+	}, d.pollInterval); err != nil {
 		return err
 	}
 
@@ -198,20 +204,25 @@ func (d *Deployer) executeUploadUpdateCertificateInstance(ctx context.Context, c
 		uploadUpdateCertificateInstanceReq.ResourceTypes = common.StringPtrs(d.config.ResourceProducts)
 		uploadUpdateCertificateInstanceReq.ResourceTypesRegions = wrapResourceProductRegions(d.config.ResourceProducts, d.config.ResourceRegions)
 		uploadUpdateCertificateInstanceResp, err := d.sdkClient.UploadUpdateCertificateInstanceWithContext(ctx, uploadUpdateCertificateInstanceReq)
-		d.logger.Debug("sdk request 'ssl.UploadUpdateCertificateInstance'", slog.Any("request", uploadUpdateCertificateInstanceReq), slog.Any("response", uploadUpdateCertificateInstanceResp))
+		d.logger.Debug("sdk request 'ssl.UploadUpdateCertificateInstance'")
 		if err != nil {
-			return false, fmt.Errorf("failed to execute sdk request 'ssl.UploadUpdateCertificateInstance': %w", err)
+			return false, safeOperationError(ctx, "Tencent Cloud did not confirm the certificate replacement")
 		}
 
-		if uploadUpdateCertificateInstanceResp.Response.DeployStatus == nil {
+		if uploadUpdateCertificateInstanceResp == nil || uploadUpdateCertificateInstanceResp.Response == nil ||
+			uploadUpdateCertificateInstanceResp.Response.DeployStatus == nil {
 			return false, fmt.Errorf("unexpected deployment job status")
 		} else if *uploadUpdateCertificateInstanceResp.Response.DeployStatus == 1 {
-			deployRecordId = int64(*uploadUpdateCertificateInstanceResp.Response.DeployRecordId)
+			recordID := uploadUpdateCertificateInstanceResp.Response.DeployRecordId
+			if recordID == nil || *recordID == 0 {
+				return false, errors.New("Tencent Cloud returned no certificate replacement record ID")
+			}
+			deployRecordId = int64(*recordID)
 			return true, nil
 		}
 
 		return false, nil
-	}, 10*time.Second); err != nil {
+	}, d.pollInterval); err != nil {
 		return err
 	}
 
@@ -222,13 +233,14 @@ func (d *Deployer) executeUploadUpdateCertificateInstance(ctx context.Context, c
 		describeHostUploadUpdateRecordDetailReq.DeployRecordId = common.Int64Ptr(deployRecordId)
 		describeHostUploadUpdateRecordDetailReq.Limit = common.Int64Ptr(200)
 		describeHostUploadUpdateRecordDetailResp, err := d.sdkClient.DescribeHostUploadUpdateRecordDetailWithContext(ctx, describeHostUploadUpdateRecordDetailReq)
-		d.logger.Debug("sdk request 'ssl.DescribeHostUploadUpdateRecordDetail'", slog.Any("request", describeHostUploadUpdateRecordDetailReq), slog.Any("response", describeHostUploadUpdateRecordDetailResp))
+		d.logger.Debug("sdk request 'ssl.DescribeHostUploadUpdateRecordDetail'")
 		if err != nil {
-			return false, fmt.Errorf("failed to execute sdk request 'ssl.DescribeHostUploadUpdateRecordDetail': %w", err)
+			return false, safeOperationError(ctx, "Could not read the Tencent Cloud certificate replacement status")
 		}
 
 		var runningCount, succeededCount, failedCount, totalCount int64
-		if describeHostUploadUpdateRecordDetailResp.Response.DeployRecordDetail == nil {
+		if describeHostUploadUpdateRecordDetailResp == nil || describeHostUploadUpdateRecordDetailResp.Response == nil ||
+			describeHostUploadUpdateRecordDetailResp.Response.DeployRecordDetail == nil {
 			return false, fmt.Errorf("unexpected tencentcloud deployment job status")
 		} else {
 			for _, record := range describeHostUploadUpdateRecordDetailResp.Response.DeployRecordDetail {
@@ -248,11 +260,19 @@ func (d *Deployer) executeUploadUpdateCertificateInstance(ctx context.Context, c
 
 		d.logger.Info(fmt.Sprintf("waiting for deployment job completion (running: %d, succeeded: %d, failed: %d, total: %d) ...", runningCount, succeededCount, failedCount, totalCount))
 		return false, nil
-	}, 10*time.Second); err != nil {
+	}, d.pollInterval); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// Provider responses, including errors, can echo submitted certificate material.
+func safeOperationError(ctx context.Context, message string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return errors.New(message)
 }
 
 func createSDKClient(secretId, secretKey, endpoint string) (*tcssl.Client, error) {

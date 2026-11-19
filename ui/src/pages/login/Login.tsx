@@ -113,7 +113,7 @@ const Login = () => {
                     <AppLocale.LinkButton />
                     <AppTheme.LinkButton />
                     <AppDocument.LinkButton />
-                    <AppVersion.LinkButton />
+                    <AppVersion />
                   </Space>
                 </div>
               </div>
@@ -127,7 +127,7 @@ const Login = () => {
                 </div>
                 <div className="mt-6 flex items-center justify-center">
                   <Space align="center" separator={<Divider orientation="vertical" />} size={4}>
-                    <AppVersion.LinkButton />
+                    <AppVersion />
                   </Space>
                 </div>
               </div>

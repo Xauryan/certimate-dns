@@ -139,22 +139,11 @@ func (p *provider) DNSRecords(ctx context.Context, zone string, page int, filter
 	}
 	out := dnsutil.Page[dns.DNSRecord](page, total)
 	for _, r := range items {
-		ttl, err := strconv.Atoi(r.TTL.String())
-		if err != nil || r.ID == "" || r.Type == "" {
-			return nil, errResponse
+		rec, err := r.view(z)
+		if err != nil {
+			return nil, err
 		}
-		status := "enabled"
-		if r.Pause.String() == "1" {
-			status = "disabled"
-		}
-		content := r.Value
-		if r.Type == "MX" {
-			if r.Level == "" {
-				return nil, errResponse
-			}
-			content = r.Level.String() + " " + r.Value
-		}
-		out.Items = append(out.Items, dns.DNSRecord{ID: r.ID.String(), Name: dnsutil.FullName(r.Item, z), Type: r.Type, Priority: dnsutil.MXPriority(r.Type, content), Content: content, Line: r.Line, TTL: ttl, Status: status})
+		out.Items = append(out.Items, rec)
 	}
 	return out, nil
 }
@@ -340,4 +329,23 @@ func (p *provider) ZoneDetails(ctx context.Context, zone string) (*dns.ZoneDetai
 	return &dns.ZoneDetails{Name: z, Lines: []dns.RecordLine{
 		{ID: "", Name: "默认"}, {ID: "LTEL", Name: "电信"}, {ID: "LCNC", Name: "联通"}, {ID: "LMOB", Name: "移动"}, {ID: "LEDU", Name: "教育网"}, {ID: "LSEO", Name: "搜索引擎"}, {ID: "LFOR", Name: "境外"},
 	}}, nil
+}
+
+func (r record) view(z string) (dns.DNSRecord, error) {
+	ttl, err := strconv.Atoi(r.TTL.String())
+	if err != nil || r.ID == "" || r.Type == "" {
+		return dns.DNSRecord{}, errResponse
+	}
+	status := "enabled"
+	if r.Pause.String() == "1" {
+		status = "disabled"
+	}
+	content := r.Value
+	if r.Type == "MX" {
+		if r.Level == "" {
+			return dns.DNSRecord{}, errResponse
+		}
+		content = r.Level.String() + " " + r.Value
+	}
+	return dns.DNSRecord{ID: r.ID.String(), Name: dnsutil.FullName(r.Item, z), Type: r.Type, Priority: dnsutil.MXPriority(r.Type, content), Content: content, Line: r.Line, TTL: ttl, Status: status}, nil
 }

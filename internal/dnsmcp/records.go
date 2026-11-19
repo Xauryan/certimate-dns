@@ -119,6 +119,14 @@ func query(e *core.RequestEvent, p dns.Provider, z dnsauth.Zone, action string, 
 			return object{"time": row.Time, "data": row.Action}
 		})
 	}
+	native := action == "list" && str(args, "native_records") == "1"
+	project := func(r dns.DNSRecord) object {
+		row := recordRow(r, z)
+		if native {
+			row["Native"] = r
+		}
+		return row
+	}
 	rr := str(args, "subdomain")
 	if action == "subdomain" {
 		rr = str(args, "rr")
@@ -128,7 +136,7 @@ func query(e *core.RequestEvent, p dns.Provider, z dnsauth.Zone, action string, 
 	}
 	// With no filters, seek directly to the upstream page containing the first requested row.
 	if rr == "" && str(args, "keyword") == "" && str(args, "type") == "" && str(args, "value") == "" && str(args, "line") == "" && str(args, "status") == "" {
-		return recordsPage(e, p, z, offset, limit)
+		return recordsPage(e, p, z, offset, limit, project)
 	}
 	records, problem := authorizedRecords(ctx, p, z)
 	if problem != nil {
@@ -136,7 +144,7 @@ func query(e *core.RequestEvent, p dns.Provider, z dnsauth.Zone, action string, 
 	}
 	rows := []object{}
 	for _, r := range records {
-		row := recordRow(r, z)
+		row := project(r)
 		if action == "subdomain" && row["Name"] == "@" && (r.Type == "NS" || r.Type == "SOA") {
 			continue
 		}
@@ -166,14 +174,14 @@ func query(e *core.RequestEvent, p dns.Provider, z dnsauth.Zone, action string, 
 	return page(rows, offset, limit), nil
 }
 
-func recordsPage(e *core.RequestEvent, p dns.Provider, z dnsauth.Zone, offset, limit int) (object, *opError) {
+func recordsPage(e *core.RequestEvent, p dns.Provider, z dnsauth.Zone, offset, limit int, project func(dns.DNSRecord) object) (object, *opError) {
 	return providerPage(offset, limit, func(n int) (*dns.DNSPage[dns.DNSRecord], error) {
 		return p.DNSRecords(e.Request.Context(), z.ZoneID, n, "")
 	}, func(r dns.DNSRecord) object {
 		if !inZone(r.Name, z.Name) || r.ID == "" {
 			return nil
 		}
-		return recordRow(r, z)
+		return project(r)
 	})
 }
 

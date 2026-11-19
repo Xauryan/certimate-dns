@@ -173,56 +173,71 @@ func (p *provider) DNSRecords(ctx context.Context, zone string, page int, filter
 		if err != nil {
 			return nil, errProvider
 		}
-		d := r.Data
-		typ, content := dara.StringValue(r.RecordType), dara.StringValue(d.Value)
-		switch typ {
-		case "A/AAAA":
-			if ip, err := netip.ParseAddr(content); err == nil {
-				if ip.Is4() {
-					typ = "A"
-				} else {
-					typ = "AAAA"
-				}
-			}
-		case "CAA":
-			if d.Flag == nil || d.Tag == nil || d.Value == nil {
-				return nil, errProvider
-			}
-			content = registrarutil.FormatCAA(int(*d.Flag), *d.Tag, content)
-		case "SRV":
-			if d.Priority == nil || d.Weight == nil || d.Port == nil || d.Value == nil {
-				return nil, errProvider
-			}
-			content = fmt.Sprintf("%d %d %d %s", dara.Int32Value(d.Priority), dara.Int32Value(d.Weight), dara.Int32Value(d.Port), content)
-		case "MX":
-			if d.Priority == nil || d.Value == nil {
-				return nil, errProvider
-			}
-			content = fmt.Sprintf("%d %s", dara.Int32Value(d.Priority), content)
-		}
-		line := "0"
-		if dara.BoolValue(r.Proxied) {
-			line = "1"
-		}
-		rec := dns.DNSRecord{
-			ID: strconv.FormatInt(*r.RecordId, 10), Name: dnsutil.FullName(host, s.name),
-			Type: typ, Content: content, TTL: int(dara.Int64Value(r.Ttl)), Line: line,
-			Proxied: dara.BoolValue(r.Proxied), Status: "active", Description: dara.StringValue(r.Comment),
-		}
-		if updated, err := time.Parse(time.RFC3339, dara.StringValue(r.UpdateTime)); err == nil {
-			rec.UpdatedAt = updated.UTC().Format(time.RFC3339)
-		}
-		if d.Priority != nil {
-			v := int(*d.Priority)
-			rec.Priority = &v
-		}
-		if d.Weight != nil {
-			v := int(*d.Weight)
-			rec.Weight = &v
+		rec, err := recordView(dns.DNSRecord{
+			ID: strconv.FormatInt(*r.RecordId, 10), Name: dnsutil.FullName(host, s.name), Type: *r.RecordType,
+			TTL: int(*r.Ttl), Proxied: dara.BoolValue(r.Proxied), Description: dara.StringValue(r.Comment),
+		}, r.Data, r.UpdateTime)
+		if err != nil {
+			return nil, err
 		}
 		out.Items = append(out.Items, rec)
 	}
 	return out, nil
+}
+
+// The SDK exposes the same RDATA getters on list rows and record details.
+type recordFields interface {
+	GetValue() *string
+	GetPriority() *int32
+	GetWeight() *int32
+	GetPort() *int32
+	GetFlag() *int32
+	GetTag() *string
+}
+
+func recordView(rec dns.DNSRecord, d recordFields, updatedAt *string) (dns.DNSRecord, error) {
+	rec.Content = dara.StringValue(d.GetValue())
+	priority, weight := d.GetPriority(), d.GetWeight()
+	switch rec.Type {
+	case "A/AAAA":
+		if addr, err := netip.ParseAddr(rec.Content); err == nil {
+			rec.Type = "AAAA"
+			if addr.Is4() {
+				rec.Type = "A"
+			}
+		}
+	case "CAA":
+		if d.GetFlag() == nil || d.GetTag() == nil || d.GetValue() == nil {
+			return dns.DNSRecord{}, errProvider
+		}
+		rec.Content = registrarutil.FormatCAA(int(*d.GetFlag()), *d.GetTag(), rec.Content)
+	case "SRV":
+		if priority == nil || weight == nil || d.GetPort() == nil || d.GetValue() == nil {
+			return dns.DNSRecord{}, errProvider
+		}
+		rec.Content = fmt.Sprintf("%d %d %d %s", *priority, *weight, *d.GetPort(), rec.Content)
+	case "MX":
+		if priority == nil || d.GetValue() == nil {
+			return dns.DNSRecord{}, errProvider
+		}
+		rec.Content = fmt.Sprintf("%d %s", *priority, rec.Content)
+	}
+	rec.Status, rec.Line = "active", "0"
+	if rec.Proxied {
+		rec.Line = "1"
+	}
+	if updated, err := time.Parse(time.RFC3339, dara.StringValue(updatedAt)); err == nil {
+		rec.UpdatedAt = updated.UTC().Format(time.RFC3339)
+	}
+	if priority != nil {
+		v := int(*priority)
+		rec.Priority = &v
+	}
+	if weight != nil {
+		v := int(*weight)
+		rec.Weight = &v
+	}
+	return rec, nil
 }
 
 func validTTL(v int) bool { return v == 1 || v >= 30 && v <= 86400 }
@@ -337,6 +352,10 @@ func (p *provider) record(ctx context.Context, zone, id string) (*esa.GetRecordR
 	if err != nil {
 		return nil, err
 	}
+	return p.recordInSite(ctx, s, n)
+}
+
+func (p *provider) recordInSite(ctx context.Context, s site, n int64) (*esa.GetRecordResponseBodyRecordModel, error) {
 	res, err := p.sdk.GetRecordWithContext(ctx, &esa.GetRecordRequest{RecordId: &n}, &dara.RuntimeOptions{})
 	if err != nil || res == nil || res.Body == nil || res.Body.RecordModel == nil {
 		return nil, sdkError(ctx)
@@ -362,6 +381,10 @@ func (p *provider) PatchDNSRecord(ctx context.Context, zone, id string, in dns.R
 	if err != nil {
 		return "", err
 	}
+	return p.patch(ctx, id, r, in)
+}
+
+func (p *provider) patch(ctx context.Context, id string, r *esa.GetRecordResponseBodyRecordModel, in dns.RecordPatch) (string, error) {
 	if r.Data == nil || r.Data.Value == nil || len(r.Data.Tags) != 0 {
 		return "", dns.ErrInvalidDNSRequest
 	}

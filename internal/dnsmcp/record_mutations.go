@@ -3,16 +3,20 @@ package dnsmcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/netip"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/pocketbase/pocketbase/core"
 
 	"github.com/certimate-go/certimate/internal/dnsauth"
 	"github.com/certimate-go/certimate/internal/dnsbatch"
+	"github.com/certimate-go/certimate/internal/dnsdrivers/dnsutil"
 	dns "github.com/certimate-go/certimate/pkg/core/dnsmanagement"
 )
 
@@ -41,6 +45,7 @@ type recordWrite struct {
 	action string
 	input  dns.RecordInput
 	value  string
+	prior  dns.DNSRecord
 }
 
 func (w recordWrite) apply(ctx context.Context, p dns.Provider, z dnsauth.Zone) (string, error) {
@@ -63,6 +68,7 @@ func runRecordWrites(e *core.RequestEvent, p dns.Provider, z dnsauth.Zone, write
 		return nil, invalid
 	}
 	var last string
+	updatedIDs := map[string]string{}
 	for i, w := range writes {
 		if !stillWritable(e, z) {
 			if i == 0 {
@@ -70,12 +76,36 @@ func runRecordWrites(e *core.RequestEvent, p dns.Provider, z dnsauth.Zone, write
 			}
 			return partial(i, len(writes), "Grant no longer active")
 		}
-		id, err := w.apply(e.Request.Context(), p, z)
+		originalID := w.id
+		if replacement, ok := updatedIDs[originalID]; ok {
+			w.id = replacement
+		}
+		var id string
+		var err error
+		if w.action == "replace" {
+			id, err = dns.ReplaceVerified(e.Request.Context(), p, z.ZoneID, z.Name, w.prior, w.input, func() bool { return stillWritable(e, z) })
+		} else {
+			id, err = w.apply(e.Request.Context(), p, z)
+		}
 		if err != nil {
-			if i == 0 {
-				return nil, upstream
+			problem := upstream
+			switch {
+			case errors.Is(err, dns.ErrRecordEditDenied):
+				problem = denied
+			case errors.Is(err, dns.ErrRecordEditConflict):
+				problem = &opError{409, "Record or destination changed; refresh before retrying"}
+			case errors.Is(err, dns.ErrRecordEditUncertain):
+				problem = &opError{409, "Could not confirm the remote record after the update; inspect provider state before retrying"}
+			case errors.Is(err, dns.ErrInvalidDNSRequest):
+				problem = unsupported
 			}
-			return partial(i, len(writes), "Refresh provider state before retrying")
+			if i == 0 {
+				return nil, problem
+			}
+			return partial(i, len(writes), problem.message)
+		}
+		if originalID != "" && id != "" && id != originalID {
+			updatedIDs[originalID] = id
 		}
 		last = id
 	}
@@ -270,7 +300,7 @@ func createWrites(z dnsauth.Zone, args object, batch bool) ([]recordWrite, *opEr
 	return out, nil
 }
 
-func editWrites(p dns.Provider, z dnsauth.Zone, grant scope, args object, targets []dns.DNSRecord) ([]recordWrite, *opError) {
+func editWrites(ctx context.Context, p dns.Provider, z dnsauth.Zone, grant scope, args object, targets []dns.DNSRecord) ([]recordWrite, *opError) {
 	remark, remarkPresent := args["remark"].(string)
 	if _, exists := args["remark"]; exists && (!remarkPresent || len(remark) > 512) {
 		return nil, invalid
@@ -280,30 +310,20 @@ func editWrites(p dns.Provider, z dnsauth.Zone, grant scope, args object, target
 	if !pok || !wok {
 		return nil, invalid
 	}
+	editCapabilities := sync.OnceValues(func() (dns.RecordEditCapabilities, error) {
+		return dns.RecordEditCapabilitiesForZone(ctx, p, z.ZoneID)
+	})
 	out := make([]recordWrite, 0, len(targets))
 	for _, r := range targets {
 		if protected(r, z.Name) {
 			return nil, unsupported
 		}
 		row := recordRow(r, z)
-		if name := str(args, "name"); name != "" && !strings.EqualFold(owner(name, z.Name), owner(row["Name"].(string), z.Name)) {
-			return nil, unsupported
-		}
-		if typ := str(args, "type"); typ != "" && !strings.EqualFold(r.Type, typ) {
-			return nil, unsupported
-		}
-		if _, exists := args["mx"]; exists && r.Type == "MX" && (r.Priority == nil || *r.Priority != priority) {
-			return nil, unsupported
-		}
-		ttl, ok := number(args, "ttl", r.TTL, 0, math.MaxInt32)
-		if !ok {
-			return nil, invalid
-		}
-		input, problem := inputForRecord(z, r.Name, r.Type, str(args, "value"), ttl)
+		write, problem := recordDataWrite(editCapabilities, z, r, args, priority)
 		if problem != nil {
 			return nil, problem
 		}
-		out = append(out, recordWrite{action: "update", id: r.ID, input: input})
+		out = append(out, write)
 		// Validate every requested secondary attribute before any write.
 		var extras []recordWrite
 		if line := str(args, "line"); line != "" && legacyLine(z.Provider, line) != legacyLine(z.Provider, row["Line"].(string)) {
@@ -335,6 +355,172 @@ func editWrites(p dns.Provider, z dnsauth.Zone, grant scope, args object, target
 	return out, nil
 }
 
+func recordDataWrite(editCapabilities func() (dns.RecordEditCapabilities, error), z dnsauth.Zone, prior dns.DNSRecord, args object, priority int) (recordWrite, *opError) {
+	if !inZone(prior.Name, z.Name) {
+		return recordWrite{}, missing
+	}
+	typ := prior.Type
+	if value := str(args, "type"); value != "" {
+		typ = strings.ToUpper(value)
+	}
+	ttl, ok := number(args, "ttl", prior.TTL, 0, math.MaxInt32)
+	if !ok {
+		return recordWrite{}, invalid
+	}
+	name := prior.Name
+	if requested := str(args, "name"); requested != "" {
+		logical := owner(requested, z.Name)
+		if !inZone(logical, z.Name) {
+			return recordWrite{}, invalid
+		}
+		current := recordRow(prior, z)
+		if args["expected"] != nil {
+			// The conditional bridge uses physical provider names from Native.
+			name = logical
+		} else if !strings.EqualFold(logical, owner(current["Name"].(string), z.Name)) {
+			name = logical
+			if z.Provider == "cloudflare" && current["Status"] == "0" {
+				label := strings.TrimSuffix(logical, "."+strings.ToLower(strings.TrimSuffix(z.Name, ".")))
+				if logical == strings.ToLower(strings.TrimSuffix(z.Name, ".")) {
+					label = "__root__"
+				}
+				name = label + "_pause." + strings.TrimSuffix(z.Name, ".")
+			}
+		}
+	}
+	in, problem := inputForRecord(z, name, typ, str(args, "value"), ttl)
+	if problem != nil {
+		return recordWrite{}, problem
+	}
+	if protected(dns.DNSRecord{Name: in.Name, Type: typ}, z.Name) {
+		return recordWrite{}, unsupported
+	}
+	in.Line, in.Description, in.Weight = prior.Line, prior.Description, prior.Weight
+	caps, _ := dns.ProviderCapabilities(z.Provider)
+	var oldPriority *int
+	if prior.Type == "MX" {
+		oldPriority = prior.Priority
+		if oldPriority == nil {
+			oldPriority = dnsutil.MXPriority(prior.Type, prior.Content)
+		}
+	} else if slices.Contains(caps.PriorityTypes, prior.Type) {
+		oldPriority = prior.Priority
+	}
+	if slices.Contains(caps.PriorityTypes, typ) {
+		if typ == prior.Type {
+			in.Priority = oldPriority
+		}
+		if args["mx"] != nil || in.Priority == nil {
+			in.Priority = &priority
+		}
+		if typ == "MX" {
+			fallback := 1
+			if oldPriority != nil {
+				fallback = *oldPriority
+			}
+			pref := in.Priority
+			if args["mx"] == nil {
+				pref = nil
+			}
+			exchange, mx, err := dnsutil.MXParts(in.Content, pref, fallback, 65535)
+			if err != nil {
+				return recordWrite{}, invalid
+			}
+			in.Content, in.Priority = exchange, &mx
+		}
+	}
+	rename := !strings.EqualFold(strings.TrimSuffix(prior.Name, "."), strings.TrimSuffix(in.Name, "."))
+	retype := typ != prior.Type
+	changePriority := typ == prior.Type && in.Priority != nil && (oldPriority == nil || *oldPriority != *in.Priority)
+	if !rename && !retype && !changePriority && args["expected"] == nil {
+		return recordWrite{action: "update", id: prior.ID, input: in}, nil
+	}
+	rights, err := editCapabilities()
+	if err != nil {
+		return recordWrite{}, upstream
+	}
+	if rights == (dns.RecordEditCapabilities{}) {
+		return recordWrite{}, unsupported
+	}
+	if rename && !rights.Rename || retype && !rights.Retype || changePriority && !rights.Priority {
+		return recordWrite{}, unsupported
+	}
+	return recordWrite{action: "replace", id: prior.ID, prior: prior, input: in}, nil
+}
+
+func checkExpectedRecord(value any, prior dns.DNSRecord) *opError {
+	var data []byte
+	switch expected := value.(type) {
+	case string:
+		data = []byte(expected)
+	case map[string]any:
+		var err error
+		data, err = json.Marshal(expected)
+		if err != nil {
+			return invalid
+		}
+	default:
+		return invalid
+	}
+	var expected dns.DNSRecord
+	if json.Unmarshal(data, &expected) != nil || expected.ID == "" {
+		return invalid
+	}
+	if !reflect.DeepEqual(expected, prior) {
+		return &opError{409, "Record changed; refresh before retrying"}
+	}
+	return nil
+}
+
+// Prefer the requested type at this owner. When switching between address and
+// alias records, DNSMgr falls back to the related types. Prefer default lines
+// within the matching candidates to keep unrelated record types untouched.
+func recordsByName(z dnsauth.Zone, records []dns.DNSRecord, name, typ string) []dns.DNSRecord {
+	var exact, related []dns.DNSRecord
+	address := func(k string) bool { return k == "A" || k == "AAAA" || k == "CNAME" }
+	for _, r := range records {
+		row := recordRow(r, z)
+		if !strings.EqualFold(name, owner(row["Name"].(string), z.Name)) {
+			continue
+		}
+		if r.Type == typ {
+			exact = append(exact, r)
+		} else if address(typ) && address(r.Type) {
+			related = append(related, r)
+		}
+	}
+	if len(exact) == 0 {
+		exact = related
+	}
+	var defaults []dns.DNSRecord
+	for _, r := range exact {
+		if defaultRecordLine(z.Provider, str(recordRow(r, z), "Line")) {
+			defaults = append(defaults, r)
+		}
+	}
+	if len(defaults) > 0 {
+		return defaults
+	}
+	return exact
+}
+
+func defaultRecordLine(provider, line string) bool {
+	if line == "" || strings.EqualFold(line, "default") {
+		return true
+	}
+	switch provider {
+	case "tencentcloud":
+		return line == "0" || line == "默认"
+	case "cloudflare", "aliyunesa", "bt", "westcn", "qingcloud":
+		return line == "0"
+	case "huaweicloud":
+		return line == "default_view"
+	case "jdcloud":
+		return line == "-1"
+	}
+	return false
+}
+
 func mutate(e *core.RequestEvent, p dns.Provider, z dnsauth.Zone, grant scope, action string, args object) (object, *opError) {
 	if action == "add" || action == "batch_add" {
 		if !slices.Contains(grant.Actions, "record.add") {
@@ -345,6 +531,13 @@ func mutate(e *core.RequestEvent, p dns.Provider, z dnsauth.Zone, grant scope, a
 			return nil, problem
 		}
 		return runRecordWrites(e, p, z, changes)
+	}
+	expected, conditional := args["expected"]
+	if conditional && action != "update" {
+		return nil, invalid
+	}
+	if !stillWritable(e, z) {
+		return nil, denied
 	}
 	records, problem := authorizedRecords(e.Request.Context(), p, z)
 	if problem != nil {
@@ -369,15 +562,15 @@ func mutate(e *core.RequestEvent, p dns.Provider, z dnsauth.Zone, grant scope, a
 		if !inZone(name, z.Name) || typ == "" || str(args, "value") == "" {
 			return nil, invalid
 		}
-		for _, r := range records {
-			row := recordRow(r, z)
-			if strings.EqualFold(name, owner(row["Name"].(string), z.Name)) && r.Type == typ &&
-				legacyLine(z.Provider, row["Line"].(string)) == legacyLine(z.Provider, "") {
-				targets = append(targets, r)
-			}
-		}
+		targets = recordsByName(z, records, name, typ)
 		if len(targets) == 0 {
 			return nil, missing
+		}
+		if str(args, "ttl") == "0" {
+			delete(args, "ttl")
+		}
+		if str(args, "mx") == "0" {
+			delete(args, "mx")
 		}
 	default:
 		id := str(args, "recordid")
@@ -390,6 +583,11 @@ func mutate(e *core.RequestEvent, p dns.Provider, z dnsauth.Zone, grant scope, a
 		}
 		targets = []dns.DNSRecord{r}
 	}
+	if conditional {
+		if problem := checkExpectedRecord(expected, targets[0]); problem != nil {
+			return nil, problem
+		}
+	}
 	for _, r := range targets {
 		if protected(r, z.Name) {
 			return nil, unsupported
@@ -398,7 +596,7 @@ func mutate(e *core.RequestEvent, p dns.Provider, z dnsauth.Zone, grant scope, a
 	var writes []recordWrite
 	switch action {
 	case "update", "edit_by_name":
-		writes, problem = editWrites(p, z, grant, args, targets)
+		writes, problem = editWrites(e.Request.Context(), p, z, grant, args, targets)
 	case "set_status", "set_remark":
 		field := strings.TrimPrefix(action, "set_")
 		value, present := args[field]
@@ -462,7 +660,7 @@ func mutate(e *core.RequestEvent, p dns.Provider, z dnsauth.Zone, grant scope, a
 			if str(args, "type") == "" {
 				return nil, invalid
 			}
-			writes, problem = editWrites(p, z, grant, args, targets)
+			writes, problem = editWrites(e.Request.Context(), p, z, grant, args, targets)
 		case "line":
 			writes, problem = writesForAttribute(p, z, targets, "line", str(args, "line"))
 		default:

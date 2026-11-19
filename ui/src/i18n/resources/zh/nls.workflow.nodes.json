@@ -1227,6 +1227,12 @@
         "label": "宝塔面板网站类型",
         "placeholder": "请选择宝塔面板网站类型",
         "option": {
+          "docker": {
+            "label": "Docker 网站"
+          },
+          "mail": {
+            "label": "邮局域名"
+          },
           "php": {
             "label": "PHP 项目"
           },
@@ -1257,6 +1263,7 @@
         }
       },
       "baotapanel_site_names": {
+        "domain_label": "邮局域名",
         "label": "宝塔面板网站名称",
         "placeholder": "请输入宝塔面板网站名称（多个值请用半角分号隔开）",
         "errmsg": {
@@ -1279,6 +1286,9 @@
         "label": "宝塔面板极速版网站类型",
         "placeholder": "请选择宝塔面板极速版网站类型",
         "option": {
+          "iis-domain": {
+            "label": "IIS 域名绑定"
+          },
           "php": {
             "label": "PHP 项目"
           },
@@ -1306,6 +1316,7 @@
         }
       },
       "baotapanelgo_site_names": {
+        "domain_label": "IIS 绑定域名",
         "label": "宝塔面板极速版网站名称",
         "placeholder": "请输入宝塔面板极速版网站名称（多个值请用半角分号隔开）",
         "errmsg": {
@@ -2985,6 +2996,10 @@
       "wangsu_cdnpro_domain": {
         "label": "网宿云 CDN Pro 加速域名",
         "placeholder": "请输入网宿云 CDN Pro 加速域名"
+      },
+      "wangsu_cdnpro_publish": {
+        "label": "已有 CDN Pro 证书 ID",
+        "help": "新版证书将发布到生产环境，供已使用此证书的服务使用。网宿授权账号须填写用于加密私钥的 API Key。"
       },
       "wangsu_cdnpro_certificate_id": {
         "label": "网宿云 CDN Pro 原证书 ID（可选）",

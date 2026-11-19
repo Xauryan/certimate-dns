@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/certimate-go/certimate/internal/dnsdrivers/dnsutil"
 	"github.com/certimate-go/certimate/internal/domain"
@@ -24,10 +23,6 @@ type provider struct {
 	key, secret string
 	client      *http.Client
 }
-
-// All clients share locks because each HTTP handler constructs its own adapter.
-// RouteWize's modification API replaces a full record set (including its siblings).
-var recordLocks [127]sync.Mutex
 
 func New(a *domain.Access) (dns.Provider, error) {
 	key, secret := dnsutil.Field(a, "accessKeyId"), dnsutil.Field(a, "secretAccessKey")
@@ -310,6 +305,14 @@ func (p *provider) DNSRecords(ctx context.Context, zone string, page int, filter
 			return dnsutil.SlicePage(rows, page)
 		}
 	}
+	rows, err := p.searchRecords(ctx, z, filter)
+	if err != nil {
+		return nil, err
+	}
+	return dnsutil.SlicePage(rows, page)
+}
+
+func (p *provider) searchRecords(ctx context.Context, z, filter string) ([]dns.DNSRecord, error) {
 	// Host pagination counts names, whereas consumers page through individual values.
 	const limit = 100
 	seen := make(map[string]bool)
@@ -327,7 +330,7 @@ func (p *provider) DNSRecords(ctx context.Context, zone string, page int, filter
 		if filter != "" {
 			q.Set("domain_name", filter)
 		}
-		if err = p.call(ctx, "GET", "/v1/dns/host/", q, nil, &res); err != nil {
+		if err := p.call(ctx, "GET", "/v1/dns/host/", q, nil, &res); err != nil {
 			return nil, err
 		}
 		if res.Hosts == nil || !completePage(res.Total, offset, limit, len(res.Hosts)) || *res.Total > 20000 || (total >= 0 && total != *res.Total) {
@@ -357,5 +360,5 @@ func (p *provider) DNSRecords(ctx context.Context, zone string, page int, filter
 			break
 		}
 	}
-	return dnsutil.SlicePage(rows, page)
+	return rows, nil
 }

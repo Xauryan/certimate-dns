@@ -197,6 +197,39 @@ def public(value, provider):
           "credential configuration appeared in a projected DNS response")
 
 
+def exercise_rich_edit(api, provider, member, path, prior):
+    selected = path + "/" + prior["id"]
+    api.api("PATCH", selected, member, {"content": prior["content"], "ttl": 900})
+    api.api("POST", path, member,
+            {"name": prior["name"], "type": "TXT", "content": "retained answer", "ttl": 900})
+    target = "mail.shared.test"
+    api.api("POST", path, member,
+            {"name": target, "type": "MX", "content": "mx-existing.shared.test", "ttl": 600, "priority": 5})
+    observed = api.api("GET", path, member)
+    check(observed["edit"] == {"rename": True, "retype": True, "priority": True},
+          "record list did not expose PowerDNS replacement capabilities")
+    current = {r["id"]: r for r in observed["result"]}
+    original = current[prior["id"]]
+    check(original["ttl"] == 900 and len(current) == 3, "setup lost a source or destination record")
+    desired = {"name": target, "type": "MX", "content": "mx-new.shared.test", "ttl": 600, "priority": 15}
+    before = provider.patches
+    api.api("PATCH", selected, member, {**desired, "expected": prior}, expected=(409,))
+    check(provider.patches == before, "stale record snapshot reached the provider write endpoint")
+    confirmed = api.api("PATCH", selected, member, {**desired, "expected": original})
+    check(confirmed != prior["id"] and provider.patches == before + 1,
+          "record replacement did not return a new identity or sent more than one provider PATCH")
+    after = {r["id"]: r for r in api.api("GET", path, api.admin)["result"]}
+    changed = after.pop(confirmed, {})
+    check((changed.get("name"), changed.get("type"), changed.get("ttl"), changed.get("priority")) ==
+          (target, "MX", 600, 15) and
+          changed.get("content", "").rstrip(".").split() in (["mx-new.shared.test"], ["15", "mx-new.shared.test"]),
+          "record replacement did not serialize the requested MX preference, target and TTL")
+    del current[prior["id"]]
+    check(after == current, "record replacement changed an existing source or destination answer")
+    for record_id in [confirmed, *after]:
+        api.api("DELETE", path + "/" + record_id, member)
+
+
 def exercise_batch(api, provider, member, access, zone):
     record_path = records(access, zone["zoneId"])
     base = record_path.removesuffix("/records") + "/batch"
@@ -301,7 +334,7 @@ def exercise(api, provider, legacy, member_password):
     api.api("PATCH", allowed + "/" + row["id"], member, {"content": "updated", "ttl": 600})
     row, = api.api("GET", allowed, admin)["result"]
     check((row["content"], row["ttl"]) == ("updated", 600), "editor update did not round-trip")
-    api.api("DELETE", allowed + "/" + row["id"], member)
+    exercise_rich_edit(api, provider, member, allowed, row)
     check(api.api("GET", allowed, admin)["result"] == [], "editor delete did not round-trip")
     pending, confirmation = exercise_batch(api, provider, member, first, shared)
     api.pb("DELETE", f"/api/collections/dns_zone_grants/records/{grant}", admin, expected=204)
@@ -334,6 +367,13 @@ def main():
         member_password = secrets.token_urlsafe(30)
         with serve(exe, directory / "fresh", admin_password) as api:
             check(DNS_COLLECTIONS <= pb_collections(api).keys(), "fresh DNS migrations incomplete")
+            # Exercise production route registration alongside the SPA's GET catch-all.
+            for method in ("GET", "POST", "DELETE"):
+                response = api.pb(method, "/mcp", expected=401)
+                check(response.get("jsonrpc") == "2.0" and response.get("error", {}).get("code") == -32001,
+                      f"{method} /mcp did not reach the interface authentication handler")
+            proxy = api.pb("GET", "/api/dns-proxy/settings", api.admin)
+            check(proxy.get("enabled") is False, "fresh DNS proxy must be disabled")
         print("PASS fresh schema and administrator login", flush=True)
         db = directory / "upgrade"
         with serve(baseline, db, admin_password) as api:
@@ -345,7 +385,7 @@ def main():
             verify_legacy(api, provider, legacy)
             print("PASS upgrade from v0.4.38 with existing login, workflow and credential", flush=True)
             member_id, allowed = exercise(api, provider, legacy, member_password)
-        print("PASS synchronized catalog, collection locks, scoped DNS CRUD, batch confirmation and revocation", flush=True)
+        print("PASS synchronized catalog, collection locks, scoped DNS CRUD and replacement, batch confirmation and revocation", flush=True)
         with serve(exe, db, admin_password) as api:
             verify_legacy(api, provider, legacy)
             member = api.login("dns_members", MEMBER_EMAIL, member_password)

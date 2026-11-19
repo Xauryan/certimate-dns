@@ -212,18 +212,16 @@
     },
     "socials": {
       "document": "Documentation",
-      "github": "GitHub",
-      "telegram": "Telegram",
-      "donate": "Donate"
+      "github": "GitHub"
     },
     "feedback": {
-      "title": "Help us improve Certimate",
-      "subtitle": "Tell us how to make Certimate work better for you.",
+      "title": "Help us improve Certimate DNS",
+      "subtitle": "Report an issue or suggest an improvement.",
       "button": "Give feedback"
     },
     "contributors": {
-      "title": "Contributors",
-      "tips": "Thanks to all the people who have contributed to this project."
+      "title": "Upstream Certimate contributors",
+      "tips": "Thanks to everyone who contributed to Certimate."
     }
   }
 }
