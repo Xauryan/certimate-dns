@@ -9,6 +9,7 @@ import { mergeCls } from "@/utils/css";
 import { type SharedPickerProps, usePickerDataSource, usePickerWrapperCols } from "./_shared";
 
 export interface AccessProviderPickerProps extends SharedPickerProps<AccessProvider> {
+  providerLabels?: ReadonlyMap<string, string>;
   showOptionTags?: boolean | { [key in AccessUsageType | "builtin"]?: boolean };
 }
 
@@ -17,7 +18,7 @@ export interface AccessProviderPickerInstance {
 }
 
 const AccessProviderPicker = forwardRef<AccessProviderPickerInstance, AccessProviderPickerProps>(
-  ({ className, style, gap = "medium", placeholder, showOptionTags, showSearch = false, onFilter, onSelect }, ref) => {
+  ({ className, style, gap = "medium", placeholder, providerLabels, showOptionTags, showSearch = false, onFilter, onSelect }, ref) => {
     const { t } = useTranslation();
 
     const showOptionTagForDNS = useMemo(() => {
@@ -45,7 +46,7 @@ const AccessProviderPicker = forwardRef<AccessProviderPickerInstance, AccessProv
     const keywordInputRef = useRef<InputRef>(null);
 
     const dataSources = usePickerDataSource({
-      dataSource: Array.from(accessProvidersMap.values()),
+      dataSource: Array.from(accessProvidersMap.values(), (provider) => ({ ...provider, name: providerLabels?.get(provider.type) ?? provider.name })),
       filters: [onFilter!],
       keyword: keyword,
     });

@@ -27,7 +27,7 @@ func (n *NotifyService) TestPush(ctx context.Context, req *dtos.NotifyTestPushRe
 	if access, err := n.accessRepo.GetById(ctx, req.AccessId); err != nil {
 		return nil, fmt.Errorf("failed to get access #%s record: %w", req.AccessId, err)
 	} else {
-		if access.Reserve != "notif" {
+		if access.Reserve != "notif" || access.DeletedAt != nil || access.Provider != string(req.Provider) {
 			return nil, fmt.Errorf("access #%s is not available for notification", req.AccessId)
 		}
 

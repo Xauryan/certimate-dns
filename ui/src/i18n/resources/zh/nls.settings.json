@@ -53,6 +53,28 @@
     }
   },
 
+  "dns_proxy": {
+    "tab": "DNS 代理",
+    "enabled": "启用实例 DNS 代理",
+    "enabled_help": "选择「强制使用实例 DNS 代理」的账号将通过此服务器连接。禁用后，这些账号的 DNS 请求会失败。",
+    "server": "代理服务器",
+    "server_help": "填写带端口的 HTTP、HTTPS、SOCKS4、SOCKS5 或 SOCKS5H 地址。更换代理服务器后，如需认证，请填写新服务器的凭据。",
+    "invalid_server": "请填写包含端口的代理地址，并将认证信息填在下方。",
+    "username": "代理用户名",
+    "password": "代理密码",
+    "username_required": "使用密码认证时，请填写代理用户名。",
+    "socks4_help": "SOCKS4 支持使用用户名认证。",
+    "keep_saved": "留空保留已保存的值",
+    "clear_auth": "清除已保存的用户名和密码",
+    "test": "测试已保存的代理",
+    "remove": "移除代理",
+    "remove_confirm": "移除代理服务器及其凭据？",
+    "test_success": "代理连接成功，耗时 {{latency}} 毫秒。",
+    "test_failed": "连接测试失败，请检查代理地址、端口和凭据。",
+    "load_error": "读取 DNS 代理设置失败。",
+    "save_error": "保存 DNS 代理设置失败。"
+  },
+
   "appearance": {
     "tab": "外观",
     "theme": {

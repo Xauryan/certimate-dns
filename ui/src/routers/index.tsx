@@ -4,9 +4,17 @@ import AccessList from "@/pages/accesses/AccessList";
 import AccessNew from "@/pages/accesses/AccessNew";
 import AuthLayout from "@/pages/AuthLayout";
 import CertificateList from "@/pages/certificates/CertificateList";
+import CloudflareManager from "@/pages/cfmanagement/CloudflareManager";
 import ConsoleLayout from "@/pages/ConsoleLayout";
-import DNSManager from "@/pages/dns/DNSManager";
 import Dashboard from "@/pages/dashboard/Dashboard";
+import DNSManager from "@/pages/dns/DNSManager";
+import DNSMember from "@/pages/dnsauth/DNSMember";
+import DNSPermissions from "@/pages/dnsauth/DNSPermissions";
+import DNSAutomation from "@/pages/dnsautomation/DNSAutomation";
+import DomainCatalog from "@/pages/dnscatalog/DomainCatalog";
+import CertificateOrders from "@/pages/dnscert";
+import DNSIdentity from "@/pages/dnsidentity/DNSIdentity";
+import DNSInterfaceKeys from "@/pages/dnsinterfaces/DNSInterfaceKeys";
 import ErrorLayout from "@/pages/ErrorLayout";
 import Login from "@/pages/login/Login";
 import PresetList from "@/pages/presets/PresetList";
@@ -15,6 +23,7 @@ import SettingsAbout from "@/pages/settings/SettingsAbout";
 import SettingsAccount from "@/pages/settings/SettingsAccount";
 import SettingsAppearance from "@/pages/settings/SettingsAppearance";
 import SettingsDiagnostics from "@/pages/settings/SettingsDiagnostics";
+import SettingsDNSProxy from "@/pages/settings/SettingsDNSProxy";
 import SettingsPersistence from "@/pages/settings/SettingsPersistence";
 import SettingsSSLProvider from "@/pages/settings/SettingsSSLProvider";
 import WorkflowDetail from "@/pages/workflows/WorkflowDetail";
@@ -33,6 +42,21 @@ export const router = createHashRouter([
         element: <Dashboard />,
       },
       { path: "/dns", element: <DNSManager /> },
+      { path: "/dns/catalog", element: <DomainCatalog /> },
+      { path: "/dns/cloudflare", element: <CloudflareManager /> },
+      { path: "/dns/automation", element: <DNSAutomation /> },
+      { path: "/dns-automation", element: <DNSAutomation /> },
+      { path: "/dns-cert", element: <CertificateOrders /> },
+      { path: "/dns-permissions", element: <DNSPermissions /> },
+      { path: "/dns-identity", element: <DNSIdentity /> },
+      {
+        path: "/dns-interfaces",
+        element: (
+          <main className="p-4 md:p-6">
+            <DNSInterfaceKeys />
+          </main>
+        ),
+      },
       {
         path: "/accesses",
         element: <AccessList />,
@@ -92,6 +116,10 @@ export const router = createHashRouter([
             element: <SettingsPersistence />,
           },
           {
+            path: "/settings/dns-proxy",
+            element: <SettingsDNSProxy />,
+          },
+          {
             path: "/settings/diagnostics",
             element: <SettingsDiagnostics />,
           },
@@ -103,6 +131,7 @@ export const router = createHashRouter([
       },
     ],
   },
+  { path: "/dns-member", element: <DNSMember /> },
   {
     path: "/login",
     element: <AuthLayout />,

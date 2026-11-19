@@ -3,6 +3,7 @@ package nginxproxymanager
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -13,7 +14,6 @@ import (
 	"github.com/certimate-go/certimate/pkg/core"
 	cmgrimpl "github.com/certimate-go/certimate/pkg/core/certmgr/providers/nginxproxymanager"
 	npmsdk "github.com/certimate-go/certimate/pkg/sdk3rd/nginxproxymanager"
-	xcert "github.com/certimate-go/certimate/pkg/utils/cert"
 	xloop "github.com/certimate-go/certimate/pkg/utils/loop"
 	xwait "github.com/certimate-go/certimate/pkg/utils/wait"
 )
@@ -124,114 +124,107 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 }
 
 func (d *Deployer) deployToHost(ctx context.Context, certPEM, privkeyPEM string) error {
-	// 解析证书内容
-	certX509, err := xcert.ParseCertificateFromPEM(certPEM)
+	pair, err := tls.X509KeyPair([]byte(certPEM), []byte(privkeyPEM))
+	if err != nil {
+		return fmt.Errorf("invalid certificate or mismatched private key")
+	}
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		return fmt.Errorf("invalid leaf certificate")
+	}
+
+	// Resolve every target before allocating a certificate in the provider.
+	hosts, err := d.resolveHosts(ctx, leaf)
 	if err != nil {
 		return err
 	}
-
-	// 上传证书
 	upres, err := d.sdkCertmgr.Upload(ctx, certPEM, privkeyPEM)
 	if err != nil {
 		return fmt.Errorf("failed to upload certificate file: %w", err)
-	} else {
-		d.logger.Info("ssl certificate uploaded", slog.Any("result", upres))
 	}
-
-	// 获取全部可部署的主机列表
-	hostsByType, err := d.getAllHosts(ctx, d.config.HostType)
-	if err != nil {
-		return err
+	certID, err := strconv.ParseInt(upres.CertId, 10, 64)
+	if err != nil || certID <= 0 {
+		return fmt.Errorf("certificate upload returned an invalid certificate ID")
 	}
+	d.logger.Info("ssl certificate uploaded", slog.Int64("certId", certID))
 
-	// 获取待部署的主机列表
-	var hostIds []int64
+	var hostIDs []int64
+	for _, host := range hosts {
+		if host.CertificateId != certID {
+			hostIDs = append(hostIDs, host.Id)
+		}
+	}
+	d.logger.Info("found hosts to update", slog.Int("count", len(hostIDs)))
+	return xloop.ForRangeAllWithContext(ctx, hostIDs, func(ctx context.Context, hostID int64, i int) error {
+		if i > 0 {
+			if err := xwait.DelayWithContext(ctx, 3*time.Second); err != nil {
+				return err
+			}
+		}
+		if err := d.updateHostCertificate(ctx, d.config.HostType, hostID, certID); err != nil {
+			return fmt.Errorf("updating host %d with certificate %d: %w", hostID, certID, err)
+		}
+		return nil
+	})
+}
+
+func (d *Deployer) resolveHosts(ctx context.Context, cert *x509.Certificate) ([]*npmsdk.Host, error) {
+	autoMatch := d.config.HostMatchPattern == HOST_MATCH_PATTERN_CERTSAN
 	switch d.config.HostMatchPattern {
 	case "", HOST_MATCH_PATTERN_SPECIFIED:
-		{
-			if d.config.HostId == 0 {
-				return fmt.Errorf("config `hostId` is required")
-			}
-
-			hostIds = []int64{d.config.HostId}
+		if d.config.HostId <= 0 {
+			return nil, fmt.Errorf("config `hostId` must be a positive integer")
 		}
-
 	case HOST_MATCH_PATTERN_CERTSAN:
-		{
-			hostCandidates := hostsByType
-			hostIds = lo.Map(
-				lo.Filter(hostCandidates, func(hostItem *npmsdk.Host, _ int) bool {
-					return len(hostItem.DomainNames) > 0 &&
-						lo.EveryBy(hostItem.DomainNames, func(domain string) bool {
-							return certX509.VerifyHostname(domain) == nil
-						})
-				}),
-				func(hostItem *npmsdk.Host, _ int) int64 {
-					return hostItem.Id
-				},
-			)
-			if len(hostIds) == 0 {
-				return fmt.Errorf("could not find any hosts matched by certificate")
-			}
-		}
-
 	default:
-		return fmt.Errorf("unsupported host match pattern: '%s'", d.config.HostMatchPattern)
+		return nil, fmt.Errorf("unsupported host match pattern")
 	}
 
-	// 批量更新主机证书
-	if len(hostIds) == 0 {
-		d.logger.Info("no hosts to deploy")
-	} else {
-		d.logger.Info("found hosts to deploy", slog.Any("hostIds", hostIds))
-
-		// 跳过已部署过的主机
-		hostIds = lo.Filter(hostIds, func(hostId int64, _ int) bool {
-			hostInfo, _ := lo.Find(hostsByType, func(hostItem *npmsdk.Host) bool {
-				return hostId == hostItem.Id
-			})
-			if hostInfo != nil {
-				certId, _ := strconv.ParseInt(upres.CertId, 10, 64)
-				return hostInfo.CertificateId != certId
-			}
-
-			return true
-		})
-
-		if err := xloop.ForRangeAllWithContext(ctx, hostIds, func(ctx context.Context, hostId int64, i int) error {
-			if i > 0 {
-				if err := xwait.DelayWithContext(ctx, 3*time.Second); err != nil {
-					return err
-				}
-			}
-
-			certId, _ := strconv.ParseInt(upres.CertId, 10, 64)
-			return d.updateHostCertificate(ctx, d.config.HostType, hostId, certId)
-		}); err != nil {
-			return err
+	hosts, err := d.getAllHosts(ctx, d.config.HostType)
+	if err != nil {
+		return nil, err
+	}
+	var matched []*npmsdk.Host
+	seen := make(map[int64]bool)
+	for _, host := range hosts {
+		if host.Id <= 0 || seen[host.Id] {
+			return nil, fmt.Errorf("NPM returned invalid or duplicate host IDs")
 		}
+		seen[host.Id] = true
+		if autoMatch {
+			if len(host.DomainNames) == 0 || !lo.EveryBy(host.DomainNames, func(domain string) bool {
+				return cert.VerifyHostname(domain) == nil
+			}) {
+				continue
+			}
+		} else if host.Id != d.config.HostId {
+			continue
+		}
+		matched = append(matched, host)
 	}
-
-	return nil
+	if len(matched) == 0 {
+		return nil, fmt.Errorf("no matching host found for the selected target")
+	}
+	return matched, nil
 }
 
 func (d *Deployer) deployToCertificate(ctx context.Context, certPEM, privkeyPEM string) error {
-	if d.config.CertificateId == 0 {
+	if d.config.CertificateId <= 0 {
 		return fmt.Errorf("config `certificateId` is required")
 	}
 
 	// 替换证书
-	rplres, err := d.sdkCertmgr.Replace(ctx, strconv.FormatInt(d.config.CertificateId, 10), certPEM, privkeyPEM)
+	_, err := d.sdkCertmgr.Replace(ctx, strconv.FormatInt(d.config.CertificateId, 10), certPEM, privkeyPEM)
 	if err != nil {
 		return fmt.Errorf("failed to replace certificate file: %w", err)
 	} else {
-		d.logger.Info("ssl certificate replaced", slog.Any("result", rplres))
+		d.logger.Info("ssl certificate replaced", slog.Int64("certId", d.config.CertificateId))
 	}
 
 	// 获取默认站点
 	settingsGetDefaultSiteReq := &npmsdk.SettingsGetDefaultSiteRequest{}
 	settingsGetDefaultSiteResp, err := d.sdkClient.SettingsGetDefaultSiteWithContext(ctx, settingsGetDefaultSiteReq)
-	d.logger.Debug("sdk request 'settings.GetDefaultSite'", slog.Any("request", settingsGetDefaultSiteReq), slog.Any("response", settingsGetDefaultSiteResp))
+	d.logger.Debug("sdk request 'settings.GetDefaultSite'")
 	if err != nil {
 		return fmt.Errorf("failed to execute sdk request 'settings.GetDefaultSite': %w", err)
 	}
@@ -240,8 +233,8 @@ func (d *Deployer) deployToCertificate(ctx context.Context, certPEM, privkeyPEM 
 	settingsSetDefaultSiteReq := &npmsdk.SettingsSetDefaultSiteRequest{
 		Value: settingsGetDefaultSiteResp.Value,
 	}
-	settingsSetDefaultSiteResp, err := d.sdkClient.SettingsSetDefaultSiteWithContext(ctx, settingsSetDefaultSiteReq)
-	d.logger.Debug("sdk request 'settings.SetDefaultSite'", slog.Any("request", settingsSetDefaultSiteReq), slog.Any("response", settingsSetDefaultSiteResp))
+	_, err = d.sdkClient.SettingsSetDefaultSiteWithContext(ctx, settingsSetDefaultSiteReq)
+	d.logger.Debug("sdk request 'settings.SetDefaultSite'")
 	if err != nil {
 		return fmt.Errorf("failed to execute sdk request 'settings.SetDefaultSite': %w", err)
 	}
@@ -256,13 +249,16 @@ func (d *Deployer) getAllHosts(ctx context.Context, cloudHostType string) ([]*np
 		{
 			nginxListProxyHostsReq := &npmsdk.NginxListProxyHostsRequest{}
 			nginxListProxyHostsResp, err := d.sdkClient.NginxListProxyHostsWithContext(ctx, nginxListProxyHostsReq)
-			d.logger.Debug("sdk request 'nginx.ListProxyHosts'", slog.Any("request", nginxListProxyHostsReq), slog.Any("response", nginxListProxyHostsResp))
+			d.logger.Debug("sdk request 'nginx.ListProxyHosts'")
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute sdk request 'nginx.ListProxyHosts': %w", err)
 			}
 
 			hosts = make([]*npmsdk.Host, 0, len(*nginxListProxyHostsResp))
 			for _, hostItem := range *nginxListProxyHostsResp {
+				if hostItem == nil {
+					return nil, fmt.Errorf("NPM returned an invalid host")
+				}
 				hosts = append(hosts, &hostItem.Host)
 			}
 		}
@@ -271,13 +267,16 @@ func (d *Deployer) getAllHosts(ctx context.Context, cloudHostType string) ([]*np
 		{
 			nginxListRedirectionHostsReq := &npmsdk.NginxListRedirectionHostsRequest{}
 			nginxListRedirectionHostsResp, err := d.sdkClient.NginxListRedirectionHostsWithContext(ctx, nginxListRedirectionHostsReq)
-			d.logger.Debug("sdk request 'nginx.ListRedirectionHosts'", slog.Any("request", nginxListRedirectionHostsReq), slog.Any("response", nginxListRedirectionHostsResp))
+			d.logger.Debug("sdk request 'nginx.ListRedirectionHosts'")
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute sdk request 'nginx.ListRedirectionHosts': %w", err)
 			}
 
 			hosts = make([]*npmsdk.Host, 0, len(*nginxListRedirectionHostsResp))
 			for _, hostItem := range *nginxListRedirectionHostsResp {
+				if hostItem == nil {
+					return nil, fmt.Errorf("NPM returned an invalid host")
+				}
 				hosts = append(hosts, &hostItem.Host)
 			}
 		}
@@ -286,13 +285,16 @@ func (d *Deployer) getAllHosts(ctx context.Context, cloudHostType string) ([]*np
 		{
 			nginxListStreamsReq := &npmsdk.NginxListStreamsRequest{}
 			nginxListStreamsResp, err := d.sdkClient.NginxListStreamsWithContext(ctx, nginxListStreamsReq)
-			d.logger.Debug("sdk request 'nginx.ListStreams'", slog.Any("request", nginxListStreamsReq), slog.Any("response", nginxListStreamsResp))
+			d.logger.Debug("sdk request 'nginx.ListStreams'")
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute sdk request 'nginx.ListStreams': %w", err)
 			}
 
 			hosts = make([]*npmsdk.Host, 0, len(*nginxListStreamsResp))
 			for _, hostItem := range *nginxListStreamsResp {
+				if hostItem == nil {
+					return nil, fmt.Errorf("NPM returned an invalid host")
+				}
 				hosts = append(hosts, &hostItem.Host)
 			}
 		}
@@ -301,19 +303,22 @@ func (d *Deployer) getAllHosts(ctx context.Context, cloudHostType string) ([]*np
 		{
 			nginxListDeadHostsReq := &npmsdk.NginxListDeadHostsRequest{}
 			nginxListDeadHostsResp, err := d.sdkClient.NginxListDeadHostsWithContext(ctx, nginxListDeadHostsReq)
-			d.logger.Debug("sdk request 'nginx.ListDeadHosts'", slog.Any("request", nginxListDeadHostsReq), slog.Any("response", nginxListDeadHostsResp))
+			d.logger.Debug("sdk request 'nginx.ListDeadHosts'")
 			if err != nil {
 				return nil, fmt.Errorf("failed to execute sdk request 'nginx.ListDeadHosts': %w", err)
 			}
 
 			hosts = make([]*npmsdk.Host, 0, len(*nginxListDeadHostsResp))
 			for _, hostItem := range *nginxListDeadHostsResp {
+				if hostItem == nil {
+					return nil, fmt.Errorf("NPM returned an invalid host")
+				}
 				hosts = append(hosts, &hostItem.Host)
 			}
 		}
 
 	default:
-		return hosts, fmt.Errorf("unsupported host type: '%s'", cloudHostType)
+		return hosts, fmt.Errorf("unsupported host type")
 	}
 
 	return hosts, nil
@@ -326,8 +331,8 @@ func (d *Deployer) updateHostCertificate(ctx context.Context, cloudHostType stri
 			nginxUpdateProxyHostReq := &npmsdk.NginxUpdateProxyHostRequest{
 				CertificateId: lo.ToPtr(cloudCertId),
 			}
-			nginxUpdateProxyHostResp, err := d.sdkClient.NginxUpdateProxyHostWithContext(ctx, cloudHostId, nginxUpdateProxyHostReq)
-			d.logger.Debug("sdk request 'nginx.UpdateProxyHost'", slog.Int64("params.hostId", cloudHostId), slog.Any("request", nginxUpdateProxyHostReq), slog.Any("response", nginxUpdateProxyHostResp))
+			_, err := d.sdkClient.NginxUpdateProxyHostWithContext(ctx, cloudHostId, nginxUpdateProxyHostReq)
+			d.logger.Debug("sdk request 'nginx.UpdateProxyHost'", slog.Int64("params.hostId", cloudHostId))
 			if err != nil {
 				return fmt.Errorf("failed to execute sdk request 'nginx.UpdateProxyHost': %w", err)
 			}
@@ -338,8 +343,8 @@ func (d *Deployer) updateHostCertificate(ctx context.Context, cloudHostType stri
 			nginxUpdateRedirectionHostReq := &npmsdk.NginxUpdateRedirectionHostRequest{
 				CertificateId: lo.ToPtr(cloudCertId),
 			}
-			nginxUpdateRedirectionHostResp, err := d.sdkClient.NginxUpdateRedirectionHostWithContext(ctx, cloudHostId, nginxUpdateRedirectionHostReq)
-			d.logger.Debug("sdk request 'nginx.UpdateRedirectionHost'", slog.Int64("params.hostId", cloudHostId), slog.Any("request", nginxUpdateRedirectionHostReq), slog.Any("response", nginxUpdateRedirectionHostResp))
+			_, err := d.sdkClient.NginxUpdateRedirectionHostWithContext(ctx, cloudHostId, nginxUpdateRedirectionHostReq)
+			d.logger.Debug("sdk request 'nginx.UpdateRedirectionHost'", slog.Int64("params.hostId", cloudHostId))
 			if err != nil {
 				return fmt.Errorf("failed to execute sdk request 'nginx.UpdateRedirectionHost': %w", err)
 			}
@@ -350,8 +355,8 @@ func (d *Deployer) updateHostCertificate(ctx context.Context, cloudHostType stri
 			nginxUpdateStreamReq := &npmsdk.NginxUpdateStreamRequest{
 				CertificateId: lo.ToPtr(cloudCertId),
 			}
-			nginxUpdateStreamResp, err := d.sdkClient.NginxUpdateStreamWithContext(ctx, cloudHostId, nginxUpdateStreamReq)
-			d.logger.Debug("sdk request 'nginx.UpdateStream'", slog.Int64("params.hostId", cloudHostId), slog.Any("request", nginxUpdateStreamReq), slog.Any("response", nginxUpdateStreamResp))
+			_, err := d.sdkClient.NginxUpdateStreamWithContext(ctx, cloudHostId, nginxUpdateStreamReq)
+			d.logger.Debug("sdk request 'nginx.UpdateStream'", slog.Int64("params.hostId", cloudHostId))
 			if err != nil {
 				return fmt.Errorf("failed to execute sdk request 'nginx.UpdateStream': %w", err)
 			}
@@ -362,15 +367,15 @@ func (d *Deployer) updateHostCertificate(ctx context.Context, cloudHostType stri
 			nginxUpdateDeadHostReq := &npmsdk.NginxUpdateDeadHostRequest{
 				CertificateId: lo.ToPtr(cloudCertId),
 			}
-			nginxUpdateDeadHostResp, err := d.sdkClient.NginxUpdateDeadHostWithContext(ctx, cloudHostId, nginxUpdateDeadHostReq)
-			d.logger.Debug("sdk request 'nginx.UpdateDeadHost'", slog.Int64("params.hostId", cloudHostId), slog.Any("request", nginxUpdateDeadHostReq), slog.Any("response", nginxUpdateDeadHostResp))
+			_, err := d.sdkClient.NginxUpdateDeadHostWithContext(ctx, cloudHostId, nginxUpdateDeadHostReq)
+			d.logger.Debug("sdk request 'nginx.UpdateDeadHost'", slog.Int64("params.hostId", cloudHostId))
 			if err != nil {
 				return fmt.Errorf("failed to execute sdk request 'nginx.UpdateDeadHost': %w", err)
 			}
 		}
 
 	default:
-		return fmt.Errorf("unsupported host type: '%s'", cloudHostType)
+		return fmt.Errorf("unsupported host type")
 	}
 
 	return nil

@@ -14,6 +14,9 @@ export interface DNSRecord {
   ttl: number;
   proxied: boolean;
   line?: string;
+  priority?: number;
+  description?: string;
+  weight?: number;
   readOnly?: boolean;
 }
 export interface Page<T> {

@@ -366,6 +366,9 @@
         "label": "上传来源",
         "placeholder": "请选择上传来源",
         "option": {
+          "inventory": {
+            "label": "证书库"
+          },
           "form": {
             "label": "表单"
           },
@@ -380,6 +383,10 @@
       "name": {
         "label": "证书名称",
         "placeholder": "上传证书文件后显示"
+      },
+      "inventory": {
+        "label": "证书库中的证书",
+        "placeholder": "按域名、序列号或证书 ID 搜索"
       },
       "certificate_pem": {
         "label": "证书文件（PEM 格式）",
@@ -1806,6 +1813,12 @@
         "label": "Kubernetes 命名空间",
         "placeholder": "请输入 Kubernetes 命名空间",
         "tooltip": "这是什么？请参阅 <a href=\"https://kubernetes.io/zh-cn/docs/concepts/overview/working-with-objects/namespaces/\" target=\"_blank\">https://kubernetes.io/zh-cn/docs/concepts/overview/working-with-objects/namespaces/</a>"
+      },
+      "k8s_ingresses": {
+        "label": "Ingress 名称",
+        "placeholder": "请输入同一命名空间内的 Ingress 名称",
+        "help": "可选，多个名称可用逗号或换行分隔。部署时将证书覆盖且尚未绑定 TLS 的规则主机名加入此 Secret 的 TLS 配置。每个 Ingress 至少需要一个证书覆盖的规则主机名。",
+        "invalid": "请输入有效的 Kubernetes Ingress 名称。"
       },
       "k8s_secret_name": {
         "label": "Kubernetes Secret 名称",

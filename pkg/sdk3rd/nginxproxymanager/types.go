@@ -1,48 +1,27 @@
 package nginxproxymanager
 
-import (
-	"encoding/json"
-	"fmt"
-)
-
-type sdkResponse interface {
-	GetError() string
-}
+import "encoding/json"
 
 type sdkResponseBase struct {
 	Error json.RawMessage `json:"error"`
 }
 
-func (r *sdkResponseBase) GetError() string {
-	if len(r.Error) == 0 {
-		return ""
+// Successful results can omit the error field or use an empty value. The
+// failure payload may contain request data and must never appear in errors.
+func (r *sdkResponseBase) hasError() bool {
+	switch string(r.Error) {
+	case "", "null", "false", `""`, "0":
+		return false
+	default:
+		return true
 	}
-
-	var errStr string
-	if err := json.Unmarshal(r.Error, &errStr); err == nil {
-		return errStr
-	}
-
-	type errObjType struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	}
-	var errObj errObjType
-	if err := json.Unmarshal(r.Error, &errObj); err == nil && errObj.Message != "" {
-		if errObj.Code != 0 {
-			return fmt.Sprintf("%d %s", errObj.Code, errObj.Message)
-		}
-		return errObj.Message
-	}
-
-	var errMap map[string]any
-	if err := json.Unmarshal(r.Error, &errMap); err == nil {
-		if message, ok := errMap["message"].(string); ok {
-			return message
-		}
-	}
-
-	return ""
 }
 
-var _ sdkResponse = (*sdkResponseBase)(nil)
+// GetError reports the response error without embedding provider-controlled text.
+// It is promoted by SDK responses that embed sdkResponseBase.
+func (r *sdkResponseBase) GetError() string {
+	if r != nil && r.hasError() {
+		return "NPM returned an API error"
+	}
+	return ""
+}

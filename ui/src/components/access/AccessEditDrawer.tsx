@@ -8,6 +8,7 @@ import { testPushNotification } from "@/api/notifications";
 import AccessProviderPicker from "@/components/provider/AccessProviderPicker";
 import Show from "@/components/Show";
 import { type AccessModel } from "@/domain/access";
+import { dnsAccountProviderLabels, mergeDNSAccountConfig } from "@/domain/dnsAccount";
 import { ACCESS_USAGES } from "@/domain/provider";
 import { useTriggerElement, useZustandShallowSelector } from "@/hooks";
 import { useAccessesStore } from "@/stores/access";
@@ -63,12 +64,15 @@ const AccessEditDrawer = ({ afterSubmit, mode, data, loading, trigger, usage, ..
     try {
       applyTrimmedFormValues(formInst);
       formValues = await formInst.validateFields();
+      if (data?.provider === formValues.provider && dnsAccountProviderLabels.has(formValues.provider)) {
+        formValues.config = mergeDNSAccountConfig(formValues.provider, data.config, formValues.config);
+      }
       formValues.reserve = usage === "ca" ? "ca" : usage === "notification" ? "notif" : void 0;
-    } catch (err) {
+    } catch {
       message.warning(t("common.errmsg.form_invalid"));
 
       setFormPending(false);
-      throw err;
+      return false;
     }
 
     try {
@@ -98,10 +102,11 @@ const AccessEditDrawer = ({ afterSubmit, mode, data, loading, trigger, usage, ..
       }
 
       afterSubmit?.(formValues);
+      return true;
     } catch (err) {
       notification.error({ title: t("common.text.request_error"), description: unwrapErrMsg(err) });
 
-      throw err;
+      return false;
     } finally {
       setFormPending(false);
     }
@@ -120,13 +125,11 @@ const AccessEditDrawer = ({ afterSubmit, mode, data, loading, trigger, usage, ..
   };
 
   const handleOkClick = async () => {
-    await submitForm();
-    setOpen(false);
+    if (await submitForm()) setOpen(false);
   };
 
   const handleOkAndContinueClick = async () => {
-    await submitForm();
-    message.success(t("common.text.saved"));
+    if (await submitForm()) message.success(t("common.text.saved"));
   };
 
   const handleCancelClick = () => {
@@ -229,6 +232,7 @@ const AccessEditDrawer = ({ afterSubmit, mode, data, loading, trigger, usage, ..
       >
         <Show when={!fieldProvider && !data?.provider}>
           <AccessProviderPicker
+            providerLabels={usage === "dns-management" ? dnsAccountProviderLabels : undefined}
             gap="large"
             placeholder={t("access.form.provider.search.placeholder")}
             showOptionTags={

@@ -1,4 +1,4 @@
-**Certimate DNS** 基于 Certimate v0.4.38 二次开发。管理台已接入 Cloudflare 域名与解析记录管理，并支持导出 BIND 区域文件。阿里云 DNS 和腾讯云 DNSPod 管理适配器列入后续开发。[本地运行、源码映射与验收路线图](docs/dns-development.zh-CN.md)。
+**Certimate DNS** 基于 Certimate v0.4.38，支持 DNS 账号与域名目录、成员授权、批量解析、定时任务及证书工作流。各服务商的功能、验证结果和缺项见对照表。[本地运行](docs/dns-development.zh-CN.md) · [彩虹 DNS 功能对照](docs/dnsmgr-parity.zh-CN.md) · [迁移指南](docs/dnsmgr-migration.zh-CN.md)。
 
 <h1 align="center">🔒 Certimate</h1>
 

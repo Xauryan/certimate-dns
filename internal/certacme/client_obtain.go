@@ -5,8 +5,6 @@ import (
 	"crypto"
 	"errors"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +17,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/certimate-go/certimate/internal/certacme/certifiers"
+	"github.com/certimate-go/certimate/internal/certacme/dnssettings"
 	"github.com/certimate-go/certimate/internal/domain"
 	xcert "github.com/certimate-go/certimate/pkg/utils/cert"
 )
@@ -74,7 +73,11 @@ func (c *ACMEClient) ObtainCertificate(ctx context.Context, request *ObtainCerti
 		return nil, fmt.Errorf("the request is nil")
 	}
 
-	os.Setenv("LEGO_DISABLE_CNAME_SUPPORT", strconv.FormatBool(request.DisableFollowCNAME))
+	if err := c.obtainLock.Acquire(ctx, 1); err != nil {
+		return nil, err
+	}
+	defer c.obtainLock.Release(1)
+	defer c.client.Challenge.ResetSolvers()
 
 	const CHALLENGE_TYPE_DNS01 = "dns-01"
 	const CHALLENGE_TYPE_HTTP01 = "http-01"
@@ -96,9 +99,18 @@ func (c *ACMEClient) ObtainCertificate(ctx context.Context, request *ObtainCerti
 				return nil, fmt.Errorf("failed to initialize dns-01 provider '%s': %w", request.Provider, err)
 			}
 
-			opts := &dns01.Options{}
-			opts.RecursiveNameservers = request.Nameservers
-			dns01.SetDefaultClient(dns01.NewClient(opts))
+			release, err := dnssettings.Acquire(ctx, request.Nameservers, request.DisableFollowCNAME)
+			if err != nil {
+				return nil, err
+			}
+			defer release()
+			if cleanup, ok := provider.(interface{ RetryCleanup(context.Context) error }); ok {
+				defer func() {
+					if err := cleanup.RetryCleanup(ctx); err != nil {
+						log.Warn("DNS challenge records need manual cleanup.", log.ErrorAttr(err))
+					}
+				}()
+			}
 			c.client.Challenge.SetDNS01Provider(provider,
 				dns01.CondOptions(
 					request.DnsPropagationWait > 0,

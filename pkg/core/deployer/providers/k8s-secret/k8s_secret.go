@@ -2,6 +2,9 @@ package k8ssecret
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -10,6 +13,7 @@ import (
 	k8serrs "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -43,6 +47,8 @@ type DeployerConfig struct {
 	// Kubernetes Secret 中用于存放证书（仅含中间证书）的键。
 	// 选填。
 	SecretDataKeyForCrtOnlyIntermedia string `json:"secretDataKeyForCrtOnlyIntermedia,omitempty"`
+	// 要绑定到该 TLS Secret 的同命名空间 Ingress 名称。
+	Ingresses []string `json:"ingresses,omitempty"`
 	// Kubernetes Secret 注解。
 	SecretAnnotations map[string]string `json:"secretAnnotations,omitempty"`
 	// Kubernetes Secret 标签。
@@ -86,10 +92,30 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 		return nil, fmt.Errorf("config `secretType` is required")
 	}
 
-	// 解析证书内容
-	certX509, err := xcert.ParseCertificateFromPEM(certPEM)
-	if err != nil {
-		return nil, err
+	var certX509 *x509.Certificate
+	if len(d.config.Ingresses) > 0 {
+		if d.config.SecretType != string(k8score.SecretTypeTLS) || d.config.SecretDataKeyForKey != k8score.TLSPrivateKeyKey || d.config.SecretDataKeyForCrt != k8score.TLSCertKey {
+			return nil, fmt.Errorf("Ingress binding requires a kubernetes.io/tls Secret with tls.crt and tls.key")
+		}
+		for _, name := range d.config.Ingresses {
+			if len(validation.IsDNS1123Subdomain(name)) != 0 {
+				return nil, fmt.Errorf("invalid Kubernetes Ingress name")
+			}
+		}
+		pair, err := tls.X509KeyPair([]byte(certPEM), []byte(privkeyPEM))
+		if err != nil {
+			return nil, fmt.Errorf("invalid certificate or mismatched private key")
+		}
+		certX509 = pair.Leaf
+	}
+	// x509keypairleaf=0 disables Leaf population; preserve support for it
+	// and for Secret-only deployments that accept custom data fields.
+	if certX509 == nil {
+		var err error
+		certX509, err = xcert.ParseCertificateFromPEM(certPEM)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// 提取服务器证书和中间证书
@@ -104,6 +130,21 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 		return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
+	// Validate all selected targets before rotating a potentially shared Secret.
+	var ingresses []ingressBinding
+	seen := make(map[string]bool)
+	for _, name := range d.config.Ingresses {
+		if seen[name] {
+			continue
+		}
+		patch, err := d.planIngressBinding(ctx, client, name, certX509)
+		if err != nil {
+			return nil, fmt.Errorf("cannot bind Ingress %q: %w", name, err)
+		}
+		ingresses = append(ingresses, ingressBinding{name: name, patch: patch})
+		seen[name] = true
+	}
+
 	// 获取 Secret 实例
 	secretPayload := &k8score.Secret{}
 	secretIsNew := false
@@ -115,7 +156,7 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 		Do(ctx)
 	if err := secretGetResp.Error(); err != nil {
 		if !k8serrs.IsNotFound(err) {
-			return nil, fmt.Errorf("failed to get kubernetes secret: %w", err)
+			return nil, fmt.Errorf("failed to get kubernetes secret: %w", summarizeAPIError(err))
 		}
 
 		secretPayload = &k8score.Secret{
@@ -130,7 +171,7 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 		}
 		secretIsNew = true
 	} else if err := secretGetResp.Into(secretPayload); err != nil {
-		return nil, fmt.Errorf("failed to parse kubernetes secret: %w", err)
+		return nil, fmt.Errorf("failed to parse kubernetes secret: %w", summarizeAPIError(err))
 	}
 	d.logger.Debug("kubernetes operate 'Secrets.Get'", slog.String("namespace", d.config.Namespace), slog.Any("secret", d.config.SecretName))
 
@@ -188,7 +229,7 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 			Do(ctx)
 		d.logger.Debug("kubernetes operate 'Secrets.Post'", slog.String("namespace", d.config.Namespace), slog.Any("secret", d.config.SecretName))
 		if err := secretPostResp.Error(); err != nil {
-			return nil, fmt.Errorf("failed to create kubernetes secret: %w", err)
+			return nil, fmt.Errorf("failed to create kubernetes secret: %w", summarizeAPIError(err))
 		}
 	} else {
 		secretPutResp := client.Put().
@@ -200,11 +241,33 @@ func (d *Deployer) Deploy(ctx context.Context, certPEM, privkeyPEM string) (*Dep
 			Do(ctx)
 		d.logger.Debug("kubernetes operate 'Secrets.Put'", slog.String("namespace", d.config.Namespace), slog.Any("secret", d.config.SecretName))
 		if err := secretPutResp.Error(); err != nil {
-			return nil, fmt.Errorf("failed to update kubernetes secret: %w", err)
+			return nil, fmt.Errorf("failed to update kubernetes secret: %w", summarizeAPIError(err))
+		}
+	}
+
+	for i, binding := range ingresses {
+		if err := d.bindIngressTLS(ctx, client, binding, certX509); err != nil {
+			return nil, fmt.Errorf("Secret updated, %d Ingress bindings confirmed, failed to bind Ingress %q: %w", i, binding.name, err)
 		}
 	}
 
 	return &DeployResult{}, nil
+}
+
+// Admission plugins and proxies can echo submitted Secret data in their error
+// messages. Report the HTTP status without including provider-controlled text.
+func summarizeAPIError(err error) error {
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	var status k8serrs.APIStatus
+	if errors.As(err, &status) {
+		return fmt.Errorf("Kubernetes API returned HTTP %d", status.Status().Code)
+	}
+	return errors.New("invalid Kubernetes API response or connection failure")
 }
 
 func createK8sClient(kubeConfig string) (*rest.RESTClient, error) {

@@ -1,4 +1,4 @@
-**Certimate DNS** is a development fork based on Certimate v0.4.38. The DNS management page supports Cloudflare zone discovery, record management and BIND zone export. Alibaba Cloud and Tencent Cloud DNSPod management are planned. [Development setup and roadmap](docs/dns-development.zh-CN.md).
+**Certimate DNS** extends Certimate v0.4.38 with DNS account and zone management, member access, record changes, scheduled operations and certificate workflows. The provider matrix records implementation and verification status for each area. [Development setup](docs/dns-development.zh-CN.md) · [DNSMgr feature comparison](docs/dnsmgr-parity.zh-CN.md) · [Migration guide](docs/dnsmgr-migration.zh-CN.md).
 
 <h1 align="center">🔒 Certimate</h1>
 

@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 
+import { hostingPanelForms } from "@/components/provider/hostingPanelForms";
+import { panelDeploymentFields } from "@/domain/hostingPanelFields";
 import { DEPLOYMENT_PROVIDERS, type DeploymentProviderType } from "@/domain/provider";
 
+import { useFormNestedFieldsContext } from "./_context";
 import BizDeployNodeConfigFieldsProvider1Panel from "./BizDeployNodeConfigFieldsProvider1Panel";
 import BizDeployNodeConfigFieldsProvider1PanelConsole from "./BizDeployNodeConfigFieldsProvider1PanelConsole";
 import BizDeployNodeConfigFieldsProviderAliyunALB from "./BizDeployNodeConfigFieldsProviderAliyunALB";
@@ -154,6 +157,7 @@ import BizDeployNodeConfigFieldsProviderZenlayerCDN from "./BizDeployNodeConfigF
 import BizDeployNodeConfigFieldsProviderZenlayerGA from "./BizDeployNodeConfigFieldsProviderZenlayerGA";
 
 const providerComponentMap: Partial<Record<DeploymentProviderType, React.ComponentType<any>>> = {
+  ...hostingPanelForms(panelDeploymentFields, useFormNestedFieldsContext),
   /*
     注意：如果追加新的子组件，请保持以 ASCII 排序。
     NOTICE: If you add new child component, please keep ASCII order.

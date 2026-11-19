@@ -29,11 +29,12 @@ export const get = async (id: string) => {
 };
 
 export const save = async (record: MaybeModelRecord<AccessModel>) => {
+  const options = { fields: _commonFields.join(",") };
   if (record.id) {
-    return await pbco.update<AccessModel>(record.id, record);
+    return await pbco.update<AccessModel>(record.id, record, options);
   }
 
-  return await pbco.create<AccessModel>(record);
+  return await pbco.create<AccessModel>(record, options);
 };
 
 export const remove = async (record: MaybeModelRecordWithId<AccessModel> | MaybeModelRecordWithId<AccessModel>[]) => {

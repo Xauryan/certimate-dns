@@ -15,11 +15,14 @@ import (
 	"github.com/samber/lo"
 	"github.com/xhit/go-str2duration/v2"
 
+	"github.com/certimate-go/certimate/internal/app"
 	"github.com/certimate-go/certimate/internal/certacme"
+	"github.com/certimate-go/certimate/internal/dnscatalog"
 	"github.com/certimate-go/certimate/internal/domain"
 	"github.com/certimate-go/certimate/internal/repository"
 	"github.com/certimate-go/certimate/internal/settings"
 	"github.com/certimate-go/certimate/internal/tools/mproc"
+	dnsmodel "github.com/certimate-go/certimate/pkg/core/dnsmanagement"
 	xcert "github.com/certimate-go/certimate/pkg/utils/cert"
 	xcertkey "github.com/certimate-go/certimate/pkg/utils/cert/key"
 	xenv "github.com/certimate-go/certimate/pkg/utils/env"
@@ -63,7 +66,7 @@ func (ne *bizApplyNodeExecutor) Execute(execCtx *NodeExecutionContext) (*NodeExe
 	execRes := newNodeExecutionResult(execCtx.Node)
 
 	nodeCfg := execCtx.Node.Data.Config.AsBizApply()
-	ne.logger.Info("ready to request certificate ...", slog.Any("config", nodeCfg))
+	ne.logger.Info("ready to request certificate ...", slog.String("provider", string(nodeCfg.Provider)), slog.String("challengeType", string(nodeCfg.ChallengeType)))
 
 	// 查询上次执行结果
 	lastOutput, lastCertificate, err := ne.getLastOutputArtifacts(execCtx)
@@ -267,6 +270,12 @@ func (ne *bizApplyNodeExecutor) execObtainCertificate(execCtx *NodeExecutionCont
 		if access, err := ne.accessRepo.GetById(execCtx.Context(), nodeCfg.ProviderAccessId); err != nil {
 			return nil, fmt.Errorf("failed to get access #%s record: %w", nodeCfg.ProviderAccessId, err)
 		} else {
+			if nodeCfg.ChallengeType == "dns-01" && dnsmodel.IsSupportedProvider(access.Provider) {
+				enabled, err := dnscatalog.IsEnabled(app.GetApp(), access.Id)
+				if err != nil || !enabled {
+					return nil, fmt.Errorf("DNS account %s is unavailable", access.Id)
+				}
+			}
 			providerAccessConfig = access.Config
 		}
 	}

@@ -31,5 +31,23 @@
     "aliyun": "Alibaba Cloud DNS",
     "tencentcloud": "Tencent Cloud DNSPod",
     "cloudflare": "Cloudflare"
-  }
+  },
+  "navigation": "Open navigation",
+  "records": "DNS records",
+  "catalog": "Domain catalog",
+  "automation": "DNS automation",
+  "cloudflare": "Cloudflare management",
+  "orders": "Certificate orders",
+  "identity": "Identity and sign-in",
+  "interfaces": "DNS interface keys",
+  "manageAccounts": "DNS management accounts",
+  "accountUnavailable": "This DNS account is unavailable. Select another account to continue.",
+  "advanced": "Zone settings",
+  "manageLink": "Manage DNS credentials",
+  "priority": "Priority",
+  "description": "Description",
+  "weight": "Weight",
+  "ttlRange": "TTL must be between {{min}} and {{max}} seconds.",
+  "ttlSpecial": "Special values: {{values}}.",
+  "zoneUnavailable": "This zone is unavailable. Select another zone."
 }

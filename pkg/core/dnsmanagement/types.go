@@ -15,6 +15,7 @@ type Zone struct {
 }
 
 type DNSRecord struct {
+	UpdatedAt   string `json:"updatedAt,omitempty"`
 	ID          string `json:"id"`
 	Type        string `json:"type"`
 	Name        string `json:"name"`
@@ -40,11 +41,14 @@ type DNSPage[T any] struct {
 }
 
 type RecordInput struct {
-	Line    string `json:"line,omitempty"`
-	Type    string `json:"type"`
-	Name    string `json:"name"`
-	Content string `json:"content"`
-	TTL     int    `json:"ttl"`
+	Priority    *int   `json:"priority,omitempty"`
+	Weight      *int   `json:"weight,omitempty"`
+	Description string `json:"description,omitempty"`
+	Line        string `json:"line,omitempty"`
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	Content     string `json:"content"`
+	TTL         int    `json:"ttl"`
 }
 
 // RecordPatch changes only the value and TTL. Proxy settings, tags and comments stay with the record.
@@ -64,5 +68,7 @@ type Provider interface {
 }
 
 // SupportedProviders lists account types with a registered management adapter.
-func SupportedProviders() []string       { return []string{"aliyun", "cloudflare", "tencentcloud"} }
+func SupportedProviders() []string {
+	return []string{"aliyun", "aliyunesa", "aws", "baiducloud", "bt", "cloudflare", "dnsla", "dnsmgr", "dynv6", "goedge", "henet", "huaweicloud", "jdcloud", "namesilo", "powerdns", "qingcloud", "spaceship", "technitiumdns", "tencentcloud", "tencenteo", "volcengine", "westcn"}
+}
 func IsSupportedProvider(id string) bool { return slices.Contains(SupportedProviders(), id) }

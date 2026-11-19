@@ -1,11 +1,11 @@
 import { getI18n, useTranslation } from "react-i18next";
-import { Form, Input } from "antd";
+import { Form, Input, Select } from "antd";
 import { createSchemaFieldRule } from "antd-zod";
 import { z } from "zod";
 
 import { useFormNestedFieldsContext } from "./_context";
 
-const AccessConfigFormFieldsProviderAliyun = () => {
+const AccessConfigFormFieldsProviderAliyun = ({ esa = false }: { esa?: boolean }) => {
   const { i18n, t } = useTranslation();
 
   const { parentNamePath } = useFormNestedFieldsContext();
@@ -37,6 +37,17 @@ const AccessConfigFormFieldsProviderAliyun = () => {
         <Input.Password autoComplete="new-password" placeholder={t("access.form.aliyun_access_key_secret.placeholder")} />
       </Form.Item>
 
+      {esa && (
+        <Form.Item name={[parentNamePath, "region"]} initialValue="cn-hangzhou" label={t("access.form.dns_account.endpoint")} rules={[formRule]}>
+          <Select
+            options={[
+              { value: "cn-hangzhou", label: t("access.form.dns_account.mainland") },
+              { value: "ap-southeast-1", label: t("access.form.dns_account.international") },
+            ]}
+          />
+        </Form.Item>
+      )}
+
       <Form.Item
         name={[parentNamePath, "resourceGroupId"]}
         initialValue={initialValues.resourceGroupId}
@@ -64,6 +75,7 @@ const getSchema = ({ i18n = getI18n() }: { i18n: ReturnType<typeof getI18n> }) =
     accessKeyId: z.string().nonempty(),
     accessKeySecret: z.string().nonempty(),
     resourceGroupId: z.string().nullish(),
+    region: z.enum(["cn-hangzhou", "ap-southeast-1"]).nullish(),
   });
 };
 

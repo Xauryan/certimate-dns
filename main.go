@@ -15,6 +15,7 @@ import (
 
 	"github.com/certimate-go/certimate/cmd"
 	"github.com/certimate-go/certimate/internal/app"
+	"github.com/certimate-go/certimate/internal/dnsidentity"
 	"github.com/certimate-go/certimate/internal/rest/routes"
 	"github.com/certimate-go/certimate/internal/scheduler"
 	"github.com/certimate-go/certimate/internal/settings"
@@ -39,10 +40,13 @@ func main() {
 	pb.RootCmd.AddCommand(cmd.NewInternalCommand(pb))
 	pb.RootCmd.AddCommand(cmd.NewVersionCommand(pb))
 	pb.RootCmd.AddCommand(cmd.NewWinscCommand(pb))
+	pb.RootCmd.AddCommand(dnsidentity.NewResetCommand(pb))
 
 	isServeCmd := slices.Contains(os.Args[1:], "serve")
 
 	if isServeCmd {
+		var stopDNS func()
+		dnsidentity.Install(pb)
 		pb.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
 			if err := e.Next(); err != nil {
 				return err
@@ -67,8 +71,14 @@ func main() {
 			scheduler.Setup()
 			workflow.Setup()
 			routes.BindRouter(e.Router)
+			stop, err := routes.BindDNSConsole(e.App, e.Router)
+			if err != nil {
+				return err
+			}
+			stopDNS = stop
 
 			if err := e.Next(); err != nil {
+				stop()
 				return err
 			}
 
@@ -77,6 +87,9 @@ func main() {
 		})
 
 		pb.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
+			if stopDNS != nil {
+				stopDNS()
+			}
 			if pb.IsBootstrapped() {
 				workflow.Teardown()
 			}

@@ -66,6 +66,34 @@
   },
 
   "form": {
+    "dns_account": {
+      "dnsmgr_signature": "DNSMgr signature version",
+      "dnsmgr_legacy": "Legacy",
+      "proxy": "DNS API connection",
+      "proxy_inherit": "Use environment settings",
+      "proxy_direct": "Connect directly",
+      "proxy_required": "Require instance DNS proxy",
+      "authentication": "Authentication method",
+      "global_key": "Global API Key",
+      "cloudflare_email": "Cloudflare account email",
+      "cloudflare_account": "Account ID for zone creation (optional)",
+      "account_id": "Account ID",
+      "access_key": "Access Key",
+      "secret_key": "Secret Key",
+      "site_url": "DNSMgr site URL",
+      "user_id": "User ID",
+      "api_key": "API key",
+      "username": "Username or email",
+      "password": "Password",
+      "endpoint": "API endpoint",
+      "mainland": "Mainland China",
+      "international": "International",
+      "goedge_cluster": "DNS cluster ID",
+      "goedge_cluster_help": "Required for DNS management.",
+      "goedge_user": "GoEdge user ID (optional)",
+      "goedge_insecure": "Allow self-signed TLS or private HTTP",
+      "goedge_url_help": "Enter the GoEdge HTTP API node URL without credentials, query or fragment. HTTP requires the option below and localhost, a loopback address or a private IP address."
+    },
     "name": {
       "label": "Name",
       "placeholder": "Please enter credential name"
@@ -652,6 +680,11 @@
       "label": "Sender email address",
       "placeholder": "Please enter sender email address"
     },
+    "api_mail_receiver": "Recipient email address",
+    "sendcloud_user": "API user",
+    "sendcloud_key": "API key",
+    "wxpusher_token": "Application token",
+    "wxpusher_uid": "Recipient UID",
     "email_sender_name": {
       "label": "Sender display name (Optional)",
       "placeholder": "Please enter sender display name"

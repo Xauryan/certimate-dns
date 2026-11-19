@@ -1,11 +1,11 @@
 import { getI18n, useTranslation } from "react-i18next";
-import { Form, Input } from "antd";
+import { Form, Input, Select } from "antd";
 import { createSchemaFieldRule } from "antd-zod";
 import { z } from "zod";
 
 import { useFormNestedFieldsContext } from "./_context";
 
-const AccessConfigFormFieldsProviderTencentCloud = () => {
+const AccessConfigFormFieldsProviderTencentCloud = ({ edgeOne = false }: { edgeOne?: boolean }) => {
   const { i18n, t } = useTranslation();
 
   const { parentNamePath } = useFormNestedFieldsContext();
@@ -37,15 +37,26 @@ const AccessConfigFormFieldsProviderTencentCloud = () => {
         <Input.Password autoComplete="new-password" placeholder={t("access.form.tencentcloud_secret_key.placeholder")} />
       </Form.Item>
 
-      <Form.Item
-        name={[parentNamePath, "projectId"]}
-        initialValue={initialValues.projectId}
-        label={t("access.form.tencentcloud_project_id.label")}
-        rules={[formRule]}
-        tooltip={<span dangerouslySetInnerHTML={{ __html: t("access.form.tencentcloud_project_id.tooltip") }}></span>}
-      >
-        <Input allowClear placeholder={t("access.form.tencentcloud_project_id.placeholder")} />
-      </Form.Item>
+      {edgeOne ? (
+        <Form.Item name={[parentNamePath, "siteType"]} initialValue="cn" label={t("access.form.dns_account.endpoint")} rules={[formRule]}>
+          <Select
+            options={[
+              { value: "cn", label: t("access.form.dns_account.mainland") },
+              { value: "intl", label: t("access.form.dns_account.international") },
+            ]}
+          />
+        </Form.Item>
+      ) : (
+        <Form.Item
+          name={[parentNamePath, "projectId"]}
+          initialValue={initialValues.projectId}
+          label={t("access.form.tencentcloud_project_id.label")}
+          rules={[formRule]}
+          tooltip={<span dangerouslySetInnerHTML={{ __html: t("access.form.tencentcloud_project_id.tooltip") }}></span>}
+        >
+          <Input allowClear placeholder={t("access.form.tencentcloud_project_id.placeholder")} />
+        </Form.Item>
+      )}
     </>
   );
 };
@@ -63,6 +74,7 @@ const getSchema = ({ i18n = getI18n() }: { i18n: ReturnType<typeof getI18n> }) =
   return z.object({
     secretId: z.string().nonempty(),
     secretKey: z.string().nonempty(),
+    siteType: z.enum(["cn", "intl"]).nullish(),
     projectId: z.coerce.number().int().positive().or(z.literal("")).nullish(),
   });
 };

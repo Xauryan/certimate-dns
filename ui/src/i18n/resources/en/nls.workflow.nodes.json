@@ -367,6 +367,9 @@
         "label": "Upload source",
         "placeholder": "Please select upload source",
         "option": {
+          "inventory": {
+            "label": "Inventory"
+          },
           "form": {
             "label": "Form"
           },
@@ -381,6 +384,10 @@
       "name": {
         "label": "Domains / IP addresses",
         "placeholder": "Please select certificate file"
+      },
+      "inventory": {
+        "label": "Inventory certificate",
+        "placeholder": "Search by domain, serial number or certificate ID"
       },
       "certificate_pem": {
         "label": "Certificate (PEM format)",
@@ -1807,6 +1814,12 @@
         "label": "Kubernetes Namespace",
         "placeholder": "Please enter Kubernetes Namespace",
         "tooltip": "For more information, see <a href=\"https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/\" target=\"_blank\">https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/</a>"
+      },
+      "k8s_ingresses": {
+        "label": "Ingress names",
+        "placeholder": "Enter Ingress names in the same namespace",
+        "help": "Optional. Separate names with commas or newlines. Each selected Ingress must have a rule host covered by the certificate. Covered hosts without a TLS binding will use this Secret.",
+        "invalid": "Enter valid Kubernetes Ingress names."
       },
       "k8s_secret_name": {
         "label": "Kubernetes Secret name",

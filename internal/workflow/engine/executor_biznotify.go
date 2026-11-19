@@ -36,6 +36,9 @@ func (ne *bizNotifyNodeExecutor) Execute(execCtx *NodeExecutionContext) (*NodeEx
 		if access, err := ne.accessRepo.GetById(execCtx.Context(), nodeCfg.ProviderAccessId); err != nil {
 			return nil, fmt.Errorf("failed to get access #%s record: %w", nodeCfg.ProviderAccessId, err)
 		} else {
+			if access.DeletedAt != nil || access.Reserve != "notif" || access.Provider != nodeCfg.Provider {
+				return nil, fmt.Errorf("notification account does not match the selected provider")
+			}
 			providerAccessConfig = access.Config
 		}
 	}

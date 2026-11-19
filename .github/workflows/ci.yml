@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 45
     env:
       CGO_ENABLED: '0'
+      GOFLAGS: '-trimpath'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -39,6 +40,7 @@ jobs:
         run: |
           npm --prefix ui ci
           npm --prefix ui run build
+          node --test ui/src/pages/dnsbatch/files.test.mjs tests/ui/*.test.mjs
           test -s ui/dist/index.html
       - name: Test DNS management in Chrome with a local provider fixture
         run: |
@@ -47,7 +49,13 @@ jobs:
       - name: Build Linux binary
         run: go build -mod=readonly -trimpath -ldflags="-s -w" -o "$RUNNER_TEMP/certimate" .
       - name: Run offline Go tests
-        run: go test -mod=readonly ./internal/... ./pkg/utils/... ./pkg/core/deployer/providers/k8s-secret ./pkg/sdk3rd/cloudflare
+        shell: bash
+        run: |
+          # Live vendor suites live under providers-tester and use external accounts.
+          mapfile -t packages < <(git ls-files 'pkg/*_test.go' | grep -v '/providers-tester/' | sed 's|/[^/]*$||; s|^|./|' | sort -u)
+          go test -mod=readonly ./cmd/dnsmgr-migrate ./internal/... "${packages[@]}"
+      - name: Exercise v0.4.38 database upgrade, grants, DNS CRUD and restart
+        run: python3 tests/integration/acceptance.py --binary "$RUNNER_TEMP/certimate"
       - name: Check first start with an empty database
         shell: bash
         run: |

@@ -1,0 +1,1747 @@
+{
+  "cert_account_query": {
+    "title": "查询SSL证书/部署账户",
+    "properties": {
+      "deploy": {
+        "type": "integer",
+        "description": "0=SSL证书账户（默认），1=自动部署账户"
+      },
+      "kw": {
+        "type": "string",
+        "description": "按名称、备注或ID搜索"
+      },
+      "offset": {
+        "type": "integer",
+        "description": "分页偏移量，默认0"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "每页数量，默认20"
+      },
+      "sortName": {
+        "type": "string",
+        "description": "排序字段"
+      },
+      "sortOrder": {
+        "type": "string",
+        "description": "排序方向",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "list"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "cert_account_manage": {
+    "title": "管理SSL证书/部署账户",
+    "properties": {
+      "deploy": {
+        "type": "integer",
+        "description": "0=SSL证书账户（默认），1=自动部署账户"
+      },
+      "id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "账户ID（edit/del 必填）"
+      },
+      "type": {
+        "type": "string",
+        "description": "账户类型标识，如 letsencrypt、zerossl、btpanel、ssh（add 必填）"
+      },
+      "config": {
+        "type": "object",
+        "description": "账户配置对象，字段见 list_provider_types 的 inputs；edit 时只需传入要修改的字段"
+      },
+      "name": {
+        "type": "string",
+        "description": "账户名称，留空默认取 config 的第一个字段值"
+      },
+      "remark": {
+        "type": "string",
+        "description": "备注"
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "add",
+      "edit",
+      "del"
+    ],
+    "readOnly": false,
+    "destructive": true
+  },
+  "cert_order_query": {
+    "title": "查询SSL证书订单",
+    "properties": {
+      "id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "证书订单ID（get 必填；list 可按ID筛选）"
+      },
+      "domain": {
+        "type": "string",
+        "description": "list：按绑定域名搜索"
+      },
+      "aid": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "list：按证书账户ID筛选"
+      },
+      "type": {
+        "type": "string",
+        "description": "list：按证书账户类型筛选，如 letsencrypt"
+      },
+      "status": {
+        "type": "string",
+        "description": "list：状态筛选，0=待提交，1=待验证，2=验证中，3=已签发，4=已吊销，5=失败，6=7天内到期，7=已过期"
+      },
+      "include_pfx": {
+        "type": "boolean",
+        "description": "get：是否同时返回 base64 编码的 PFX 证书（密码 123456），默认否"
+      },
+      "processid": {
+        "type": "string",
+        "description": "show_log：处理过程ID（取自订单的 processid 字段）"
+      },
+      "offset": {
+        "type": "integer",
+        "description": "分页偏移量，默认0"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "每页数量，默认20"
+      },
+      "sortName": {
+        "type": "string",
+        "description": "排序字段"
+      },
+      "sortOrder": {
+        "type": "string",
+        "description": "排序方向",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "list",
+      "get",
+      "show_log"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "cert_order_manage": {
+    "title": "管理SSL证书订单",
+    "properties": {
+      "id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "证书订单ID"
+      },
+      "ids": {
+        "type": "array",
+        "items": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "description": "batch：订单ID列表"
+      },
+      "aid": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "证书账户ID，-1 表示上传已有证书"
+      },
+      "domains": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "绑定域名列表，支持通配符，如 [\"example.com\", \"*.example.com\"]"
+      },
+      "keytype": {
+        "type": "string",
+        "description": "密钥类型",
+        "enum": [
+          "RSA",
+          "ECC"
+        ]
+      },
+      "keysize": {
+        "type": "string",
+        "description": "密钥长度",
+        "enum": [
+          "2048",
+          "3072",
+          "256",
+          "384"
+        ]
+      },
+      "fullchain": {
+        "type": "string",
+        "description": "aid=-1：证书链PEM"
+      },
+      "privatekey": {
+        "type": "string",
+        "description": "aid=-1：私钥PEM"
+      },
+      "isauto": {
+        "type": "boolean",
+        "description": "set_auto：是否自动续期"
+      },
+      "reset": {
+        "type": "boolean",
+        "description": "process：是否先重置订单再重新申请"
+      },
+      "act": {
+        "type": "string",
+        "description": "batch：操作类型",
+        "enum": [
+          "delete",
+          "reset",
+          "open",
+          "close"
+        ]
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "add",
+      "edit",
+      "del",
+      "process",
+      "set_auto",
+      "reset",
+      "revoke",
+      "batch"
+    ],
+    "readOnly": false,
+    "destructive": true
+  },
+  "cert_deploy_query": {
+    "title": "查询证书部署任务",
+    "properties": {
+      "oid": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "list：按证书订单ID筛选"
+      },
+      "domain": {
+        "type": "string",
+        "description": "list：按证书绑定域名搜索"
+      },
+      "aid": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "list：按部署账户ID筛选"
+      },
+      "type": {
+        "type": "string",
+        "description": "list：按部署账户类型筛选，如 btpanel"
+      },
+      "status": {
+        "type": "string",
+        "description": "list：状态筛选，0=待处理，1=成功，-1=失败"
+      },
+      "remark": {
+        "type": "string",
+        "description": "list：按备注精确筛选"
+      },
+      "processid": {
+        "type": "string",
+        "description": "show_log：处理过程ID（取自任务的 processid 字段）"
+      },
+      "offset": {
+        "type": "integer",
+        "description": "分页偏移量，默认0"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "每页数量，默认20"
+      },
+      "sortName": {
+        "type": "string",
+        "description": "排序字段"
+      },
+      "sortOrder": {
+        "type": "string",
+        "description": "排序方向",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "list",
+      "show_log"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "cert_deploy_manage": {
+    "title": "管理证书部署任务",
+    "properties": {
+      "id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "任务ID"
+      },
+      "ids": {
+        "type": "array",
+        "items": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "description": "batch：任务ID列表"
+      },
+      "aid": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "自动部署账户ID"
+      },
+      "oid": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "证书订单ID"
+      },
+      "config": {
+        "type": "object",
+        "description": "部署任务配置对象（taskinputs 字段）；edit 时只需传入要修改的字段"
+      },
+      "remark": {
+        "type": "string",
+        "description": "备注"
+      },
+      "active": {
+        "type": "boolean",
+        "description": "set_active：是否启用"
+      },
+      "reset": {
+        "type": "boolean",
+        "description": "process：是否先重置任务再执行"
+      },
+      "act": {
+        "type": "string",
+        "description": "batch：操作类型，cert=批量更换关联证书（需 certid）",
+        "enum": [
+          "delete",
+          "reset",
+          "open",
+          "close",
+          "cert"
+        ]
+      },
+      "certid": {
+        "type": "integer",
+        "description": "batch(cert)：新的证书订单ID"
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "add",
+      "edit",
+      "del",
+      "set_active",
+      "reset",
+      "process",
+      "batch"
+    ],
+    "readOnly": false,
+    "destructive": true
+  },
+  "cert_cname_query": {
+    "title": "查询CNAME代理",
+    "properties": {
+      "kw": {
+        "type": "string",
+        "description": "按域名搜索"
+      },
+      "offset": {
+        "type": "integer",
+        "description": "分页偏移量，默认0"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "每页数量，默认20"
+      },
+      "sortName": {
+        "type": "string",
+        "description": "排序字段"
+      },
+      "sortOrder": {
+        "type": "string",
+        "description": "排序方向",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "list"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "cert_cname_manage": {
+    "title": "管理CNAME代理",
+    "properties": {
+      "id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "CNAME代理ID"
+      },
+      "domain": {
+        "type": "string",
+        "description": "add：被代理的域名"
+      },
+      "rr": {
+        "type": "string",
+        "description": "代理记录的主机记录"
+      },
+      "did": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "代理记录所在的域名ID（系统内）"
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "add",
+      "edit",
+      "del",
+      "check"
+    ],
+    "readOnly": false,
+    "destructive": true
+  },
+  "cf_hostname_query": {
+    "title": "查询Cloudflare自定义主机名",
+    "properties": {
+      "domain_id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "Cloudflare 域名ID"
+      },
+      "hostname": {
+        "type": "string",
+        "description": "txt_targets：需要添加TXT验证记录的主机名"
+      }
+    },
+    "required": [
+      "domain_id"
+    ],
+    "memberActions": [],
+    "actions": [
+      "list",
+      "txt_targets",
+      "fallback_get",
+      "dcv_uuid"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "cf_hostname_manage": {
+    "title": "管理Cloudflare自定义主机名",
+    "properties": {
+      "domain_id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "Cloudflare 域名ID"
+      },
+      "hostname": {
+        "type": "string",
+        "description": "add：自定义主机名；delete：主机名（用于日志）"
+      },
+      "hostnames": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "batch_add：主机名列表"
+      },
+      "hostname_id": {
+        "type": "string",
+        "description": "update/refresh/delete：自定义主机名ID"
+      },
+      "hostname_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "batch_update/batch_delete：自定义主机名ID列表"
+      },
+      "custom_origin_server": {
+        "type": "string",
+        "description": "自定义源站，留空使用回退源"
+      },
+      "ssl_method": {
+        "type": "string",
+        "description": "证书验证方式，默认txt",
+        "enum": [
+          "txt",
+          "http"
+        ]
+      },
+      "min_tls_version": {
+        "type": "string",
+        "description": "最低TLS版本，默认1.0",
+        "enum": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3"
+        ]
+      },
+      "origin": {
+        "type": "string",
+        "description": "fallback_set：回退源主机名"
+      }
+    },
+    "required": [
+      "domain_id"
+    ],
+    "memberActions": [],
+    "actions": [
+      "add",
+      "batch_add",
+      "update",
+      "batch_update",
+      "refresh",
+      "delete",
+      "batch_delete",
+      "fallback_set",
+      "fallback_delete"
+    ],
+    "readOnly": false,
+    "destructive": true
+  },
+  "cf_tunnel_query": {
+    "title": "查询Cloudflare Tunnel",
+    "properties": {
+      "account_id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "Cloudflare 域名账户ID（系统内ID）"
+      },
+      "tunnel_id": {
+        "type": "string",
+        "description": "Tunnel ID（list 以外的操作必填）"
+      }
+    },
+    "required": [
+      "account_id"
+    ],
+    "memberActions": [],
+    "actions": [
+      "list",
+      "token",
+      "public_hostnames",
+      "cidr_routes",
+      "hostname_routes"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "cf_tunnel_manage": {
+    "title": "管理Cloudflare Tunnel",
+    "properties": {
+      "account_id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "Cloudflare 域名账户ID（系统内ID）"
+      },
+      "tunnel_id": {
+        "type": "string",
+        "description": "Tunnel ID（add 以外的操作必填）"
+      },
+      "name": {
+        "type": "string",
+        "description": "add：Tunnel 名称"
+      },
+      "hostname": {
+        "type": "string",
+        "description": "public_hostname_save/public_hostname_delete/hostname_route_add：主机名"
+      },
+      "service": {
+        "type": "string",
+        "description": "public_hostname_save：服务地址，如 http://localhost:8080"
+      },
+      "path": {
+        "type": "string",
+        "description": "public_hostname_save/public_hostname_delete：路径（可选）"
+      },
+      "network": {
+        "type": "string",
+        "description": "cidr_add：CIDR网段，如 10.0.0.0/24"
+      },
+      "comment": {
+        "type": "string",
+        "description": "cidr_add/hostname_route_add：备注"
+      },
+      "route_id": {
+        "type": "string",
+        "description": "cidr_delete/hostname_route_delete：路由ID"
+      }
+    },
+    "required": [
+      "account_id"
+    ],
+    "memberActions": [],
+    "actions": [
+      "add",
+      "delete",
+      "public_hostname_save",
+      "public_hostname_delete",
+      "cidr_add",
+      "cidr_delete",
+      "hostname_route_add",
+      "hostname_route_delete"
+    ],
+    "readOnly": false,
+    "destructive": true
+  },
+  "get_overview": {
+    "title": "系统概况",
+    "properties": {},
+    "required": [],
+    "memberActions": [
+      "stat"
+    ],
+    "actions": [
+      "stat"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "list_provider_types": {
+    "title": "服务商类型列表",
+    "properties": {
+      "category": {
+        "type": "string",
+        "description": "服务商类别",
+        "enum": [
+          "dns",
+          "cert",
+          "deploy"
+        ]
+      },
+      "type": {
+        "type": "string",
+        "description": "服务商类型标识，如 aliyun、dnspod、cloudflare、letsencrypt、btpanel"
+      }
+    },
+    "required": [
+      "category"
+    ],
+    "memberActions": [],
+    "actions": [
+      "query"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "dns_account_query": {
+    "title": "查询域名账户",
+    "properties": {
+      "kw": {
+        "type": "string",
+        "description": "按名称或备注搜索"
+      },
+      "offset": {
+        "type": "integer",
+        "description": "分页偏移量，默认0"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "每页数量，默认20"
+      },
+      "sortName": {
+        "type": "string",
+        "description": "排序字段"
+      },
+      "sortOrder": {
+        "type": "string",
+        "description": "排序方向",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "list"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "dns_account_manage": {
+    "title": "管理域名账户",
+    "properties": {
+      "id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "账户ID（edit/del 必填）"
+      },
+      "type": {
+        "type": "string",
+        "description": "DNS服务商类型标识，如 aliyun、dnspod、cloudflare（add 必填）"
+      },
+      "config": {
+        "type": "object",
+        "description": "账户配置对象，字段见 list_provider_types；edit 时只需传入要修改的字段"
+      },
+      "name": {
+        "type": "string",
+        "description": "账户名称，留空默认取 config 的第一个字段值"
+      },
+      "remark": {
+        "type": "string",
+        "description": "备注"
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "add",
+      "edit",
+      "del"
+    ],
+    "readOnly": false,
+    "destructive": true
+  },
+  "domain_query": {
+    "title": "查询域名",
+    "properties": {
+      "id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "域名ID（get/info/quickinfo/aliases 必填）"
+      },
+      "kw": {
+        "type": "string",
+        "description": "list：按域名或备注搜索；remote_list：搜索关键词"
+      },
+      "aid": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "域名账户ID（list 可选筛选；remote_list 必填）"
+      },
+      "type": {
+        "type": "string",
+        "description": "list：按DNS服务商类型筛选，如 aliyun"
+      },
+      "cid": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "list：按分类ID筛选"
+      },
+      "status": {
+        "type": "string",
+        "description": "list：到期状态筛选，1=30天内到期，2=已到期",
+        "enum": [
+          "1",
+          "2"
+        ]
+      },
+      "loginurl": {
+        "type": "boolean",
+        "description": "info：是否生成该域名的单独登录链接"
+      },
+      "page": {
+        "type": "integer",
+        "description": "remote_list：页码，默认1"
+      },
+      "pagesize": {
+        "type": "integer",
+        "description": "remote_list：每页数量，默认10"
+      },
+      "offset": {
+        "type": "integer",
+        "description": "分页偏移量，默认0"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "每页数量，默认20"
+      },
+      "sortName": {
+        "type": "string",
+        "description": "排序字段"
+      },
+      "sortOrder": {
+        "type": "string",
+        "description": "排序方向",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      }
+    },
+    "required": [],
+    "memberActions": [
+      "list",
+      "get",
+      "info",
+      "quickinfo",
+      "aliases"
+    ],
+    "actions": [
+      "list",
+      "get",
+      "info",
+      "quickinfo",
+      "aliases",
+      "remote_list",
+      "categories"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "domain_manage": {
+    "title": "管理域名",
+    "properties": {
+      "id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "域名ID"
+      },
+      "ids": {
+        "type": "array",
+        "items": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "description": "域名ID列表（批量操作）"
+      },
+      "aid": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "域名账户ID（add/batch_add 必填）"
+      },
+      "name": {
+        "type": "string",
+        "description": "add：域名"
+      },
+      "thirdid": {
+        "type": "string",
+        "description": "add：域名在DNS服务商处的ID（method=0 时必填，可从 domain_query remote_list 获取）"
+      },
+      "method": {
+        "type": "integer",
+        "description": "add：0=添加服务商中已存在的域名，1=在服务商中新建域名"
+      },
+      "recordcount": {
+        "type": "integer",
+        "description": "add：记录数量"
+      },
+      "domains": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "recordcount": {
+              "type": "integer"
+            }
+          }
+        },
+        "description": "batch_add：域名列表，每项为 {name, id, recordcount}，取自 domain_query remote_list 的 Domain/DomainId/RecordCount"
+      },
+      "is_hide": {
+        "type": "boolean",
+        "description": "edit：是否对普通用户隐藏"
+      },
+      "is_sso": {
+        "type": "boolean",
+        "description": "edit：是否允许单独登录"
+      },
+      "is_notice": {
+        "type": "boolean",
+        "description": "edit/batch_set_notice：是否开启到期提醒"
+      },
+      "cid": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "edit/set_category：分类ID，0为未分类"
+      },
+      "expiretime": {
+        "type": "string",
+        "description": "edit：到期时间，格式 Y-m-d H:i:s"
+      },
+      "remark": {
+        "type": "string",
+        "description": "edit/batch_remark：备注"
+      },
+      "alias": {
+        "type": "string",
+        "description": "alias_add：别名域名"
+      },
+      "alias_id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "alias_delete：别名ID"
+      }
+    },
+    "required": [],
+    "memberActions": [
+      "update_date",
+      "alias_add",
+      "alias_delete"
+    ],
+    "actions": [
+      "add",
+      "batch_add",
+      "edit",
+      "del",
+      "batch_del",
+      "batch_remark",
+      "batch_set_notice",
+      "refresh_expire",
+      "update_date",
+      "set_category",
+      "alias_add",
+      "alias_delete"
+    ],
+    "readOnly": false,
+    "destructive": true
+  },
+  "domain_category_manage": {
+    "title": "管理域名分类",
+    "properties": {
+      "id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "分类ID（edit/del 必填）"
+      },
+      "name": {
+        "type": "string",
+        "description": "分类名称"
+      },
+      "remark": {
+        "type": "string",
+        "description": "备注"
+      },
+      "sort": {
+        "type": "integer",
+        "description": "排序，数字越小越靠前"
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "add",
+      "edit",
+      "del"
+    ],
+    "readOnly": false,
+    "destructive": true
+  },
+  "operation_log_query": {
+    "title": "查询操作日志",
+    "properties": {
+      "uid": {
+        "type": "integer",
+        "description": "按用户ID筛选（仅管理员）"
+      },
+      "domain": {
+        "type": "string",
+        "description": "按域名筛选"
+      },
+      "kw": {
+        "type": "string",
+        "description": "按操作类型或内容搜索"
+      },
+      "offset": {
+        "type": "integer",
+        "description": "分页偏移量，默认0"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "每页数量，默认20"
+      }
+    },
+    "required": [],
+    "memberActions": [
+      "list"
+    ],
+    "actions": [
+      "list"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "record_query": {
+    "title": "查询解析记录",
+    "properties": {
+      "domain_id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "域名ID"
+      },
+      "keyword": {
+        "type": "string",
+        "description": "list/weight_list：关键词搜索"
+      },
+      "subdomain": {
+        "type": "string",
+        "description": "list：按主机记录精确筛选，如 www、@"
+      },
+      "value": {
+        "type": "string",
+        "description": "list：按记录值筛选；check：期望的记录值"
+      },
+      "type": {
+        "type": "string",
+        "description": "list：按记录类型筛选；check：记录类型，如 A、CNAME"
+      },
+      "line": {
+        "type": "string",
+        "description": "list：按线路ID筛选"
+      },
+      "status": {
+        "type": "string",
+        "description": "list：按状态筛选，1=启用，0=暂停",
+        "enum": [
+          "0",
+          "1"
+        ]
+      },
+      "rr": {
+        "type": "string",
+        "description": "subdomain：主机记录，如 www、@"
+      },
+      "recordid": {
+        "type": "string",
+        "description": "check：解析记录ID"
+      },
+      "name": {
+        "type": "string",
+        "description": "check：主机记录"
+      },
+      "offset": {
+        "type": "integer",
+        "description": "分页偏移量，默认0"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "每页数量，默认20"
+      },
+      "sortName": {
+        "type": "string",
+        "description": "排序字段"
+      },
+      "sortOrder": {
+        "type": "string",
+        "description": "排序方向",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      }
+    },
+    "required": [
+      "domain_id"
+    ],
+    "memberActions": [
+      "list",
+      "subdomain",
+      "log",
+      "groups",
+      "check",
+      "weight_list"
+    ],
+    "actions": [
+      "list",
+      "subdomain",
+      "log",
+      "groups",
+      "check",
+      "weight_list"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "record_manage": {
+    "title": "管理解析记录",
+    "properties": {
+      "domain_id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "域名ID"
+      },
+      "recordid": {
+        "type": "string",
+        "description": "解析记录ID（update/delete/set_status/set_remark 必填）"
+      },
+      "name": {
+        "type": "string",
+        "description": "主机记录，如 www、@、*（add/update/edit_by_name 必填）"
+      },
+      "type": {
+        "type": "string",
+        "description": "记录类型，如 A、AAAA、CNAME、MX、TXT、NS、SRV、CAA"
+      },
+      "value": {
+        "type": "string",
+        "description": "记录值"
+      },
+      "line": {
+        "type": "string",
+        "description": "线路ID"
+      },
+      "ttl": {
+        "type": "integer",
+        "description": "TTL，默认600"
+      },
+      "mx": {
+        "type": "integer",
+        "description": "MX优先级，默认1"
+      },
+      "weight": {
+        "type": "integer",
+        "description": "add/update：权重值"
+      },
+      "weights": {
+        "type": "object",
+        "description": "weight_update：各记录权重，键为记录ID，值为权重，如 {\"123\": 10, \"456\": 20}"
+      },
+      "remark": {
+        "type": "string",
+        "description": "备注"
+      },
+      "status": {
+        "type": "string",
+        "description": "set_status：1=启用，0=暂停；weight_status/weight_update：1=开启权重，0=关闭",
+        "enum": [
+          "0",
+          "1"
+        ]
+      },
+      "recordinfo": {
+        "type": "object",
+        "description": "update/delete/set_status：可选，原记录对象，用于生成更详细的操作日志"
+      },
+      "records": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "description": "解析记录对象（取自 record_query list 的返回），需包含 RecordId、Name、Type、Value、Line、TTL、MX、Weight、Remark",
+          "properties": {
+            "RecordId": {
+              "type": "string"
+            },
+            "Name": {
+              "type": "string"
+            },
+            "Type": {
+              "type": "string"
+            },
+            "Value": {
+              "type": "string"
+            },
+            "Line": {
+              "type": "string"
+            },
+            "TTL": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "RecordId"
+          ]
+        },
+        "description": "batch/batch_edit：要操作的记录对象数组"
+      },
+      "batch_action": {
+        "type": "string",
+        "description": "batch：批量操作类型，open=启用，pause=暂停，delete=删除，remark=修改备注，group=修改分组",
+        "enum": [
+          "open",
+          "pause",
+          "delete",
+          "remark",
+          "group"
+        ]
+      },
+      "groupid": {
+        "type": "string",
+        "description": "batch(group)：分组ID"
+      },
+      "edit_type": {
+        "type": "string",
+        "description": "batch_edit：value=批量修改记录值（需 type、value），line=批量修改线路（需 line）",
+        "enum": [
+          "value",
+          "line"
+        ]
+      },
+      "record": {
+        "type": "string",
+        "description": "batch_add：批量记录文本，每行一条，格式为“主机记录 记录值”，如\nwww 1.2.3.4\napi 5.6.7.8"
+      },
+      "proxy": {
+        "type": "boolean",
+        "description": "batch_add：Cloudflare 是否开启代理（未指定 line 时生效）"
+      },
+      "subdomain": {
+        "type": "string",
+        "description": "weight_status/weight_update：子域名主机记录"
+      }
+    },
+    "required": [
+      "domain_id"
+    ],
+    "memberActions": [
+      "add",
+      "update",
+      "delete",
+      "set_status",
+      "set_remark",
+      "batch",
+      "batch_edit",
+      "batch_add",
+      "edit_by_name",
+      "weight_status",
+      "weight_update"
+    ],
+    "actions": [
+      "add",
+      "update",
+      "delete",
+      "set_status",
+      "set_remark",
+      "batch",
+      "batch_edit",
+      "batch_add",
+      "edit_by_name",
+      "weight_status",
+      "weight_update"
+    ],
+    "readOnly": false,
+    "destructive": true
+  },
+  "dmonitor_query": {
+    "title": "查询容灾切换",
+    "properties": {
+      "id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "策略ID（info/logs 必填）"
+      },
+      "kw": {
+        "type": "string",
+        "description": "list：搜索关键词"
+      },
+      "type": {
+        "type": "integer",
+        "description": "list：搜索字段，1=域名/主机记录，2=记录ID，3=主地址，4=备用地址，5=备注"
+      },
+      "status": {
+        "type": "string",
+        "description": "list：按健康状态筛选，0=正常，1=异常",
+        "enum": [
+          "0",
+          "1"
+        ]
+      },
+      "log_action": {
+        "type": "integer",
+        "description": "logs：按动作筛选，1=异常切换，2=恢复"
+      },
+      "offset": {
+        "type": "integer",
+        "description": "分页偏移量，默认0"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "每页数量，默认20"
+      },
+      "sortName": {
+        "type": "string",
+        "description": "排序字段"
+      },
+      "sortOrder": {
+        "type": "string",
+        "description": "排序方向",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "overview",
+      "list",
+      "info",
+      "logs"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "dmonitor_manage": {
+    "title": "管理容灾切换",
+    "properties": {
+      "id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "策略ID（edit/set_active/del 必填）"
+      },
+      "ids": {
+        "type": "array",
+        "items": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "description": "batch：策略ID列表"
+      },
+      "did": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "域名ID"
+      },
+      "rr": {
+        "type": "string",
+        "description": "主机记录"
+      },
+      "recordid": {
+        "type": "string",
+        "description": "解析记录ID"
+      },
+      "recordinfo": {
+        "type": "object",
+        "description": "所选解析记录信息对象，如 {\"Value\":\"1.2.3.4\",\"Line\":\"default\",\"LineName\":\"默认\",\"TTL\":600}，取自 record_query subdomain 的返回"
+      },
+      "main_value": {
+        "type": "string",
+        "description": "主记录值（即所选记录的值）"
+      },
+      "type": {
+        "type": "integer",
+        "description": "切换类型：0=无操作，1=暂停解析，2=切换备用解析，3=条件开启解析"
+      },
+      "backup_value": {
+        "type": "string",
+        "description": "type=2：备用解析地址（IP或CNAME）"
+      },
+      "checktype": {
+        "type": "integer",
+        "description": "检测方式：0=PING，1=TCP，2=HTTP(S)"
+      },
+      "checkurl": {
+        "type": "string",
+        "description": "checktype=2：检测URL；checktype=0/1：检测IP（留空为记录值）"
+      },
+      "tcpport": {
+        "type": "integer",
+        "description": "checktype=1：TCP端口"
+      },
+      "frequency": {
+        "type": "integer",
+        "description": "检测间隔（秒），默认5"
+      },
+      "cycle": {
+        "type": "integer",
+        "description": "连续失败几次后切换，默认3；type=3 时为同域名正常记录数<=几条时开启"
+      },
+      "timeout": {
+        "type": "integer",
+        "description": "最大超时时间（秒），默认2，不能大于检测间隔"
+      },
+      "proxy": {
+        "type": "boolean",
+        "description": "HTTP检测是否使用代理"
+      },
+      "cdn": {
+        "type": "boolean",
+        "description": "type=2：切换时同时开启Cloudflare代理"
+      },
+      "remark": {
+        "type": "string",
+        "description": "备注"
+      },
+      "active": {
+        "type": "boolean",
+        "description": "set_active：是否启用"
+      },
+      "act": {
+        "type": "string",
+        "description": "batch：操作类型",
+        "enum": [
+          "delete",
+          "retry",
+          "open",
+          "close"
+        ]
+      },
+      "days": {
+        "type": "integer",
+        "description": "clean_logs：清理多少天前的日志"
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "add",
+      "edit",
+      "set_active",
+      "del",
+      "batch",
+      "clean_logs"
+    ],
+    "readOnly": false,
+    "destructive": true
+  },
+  "optimizeip_query": {
+    "title": "查询优选IP",
+    "properties": {
+      "kw": {
+        "type": "string",
+        "description": "list：搜索关键词"
+      },
+      "type": {
+        "type": "integer",
+        "description": "list：搜索字段，1=域名/主机记录，2=备注"
+      },
+      "status": {
+        "type": "string",
+        "description": "list：按状态筛选，0=未运行，1=成功，2=失败",
+        "enum": [
+          "0",
+          "1",
+          "2"
+        ]
+      },
+      "offset": {
+        "type": "integer",
+        "description": "分页偏移量，默认0"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "每页数量，默认20"
+      },
+      "sortName": {
+        "type": "string",
+        "description": "排序字段"
+      },
+      "sortOrder": {
+        "type": "string",
+        "description": "排序方向",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "list",
+      "api_balance"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "optimizeip_manage": {
+    "title": "管理优选IP",
+    "properties": {
+      "id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "任务ID（add 以外必填）"
+      },
+      "did": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "域名ID"
+      },
+      "rr": {
+        "type": "string",
+        "description": "主机记录"
+      },
+      "type": {
+        "type": "integer",
+        "description": "解析线路类型：0=电信/联通/移动线路，1=默认/联通/移动线路"
+      },
+      "cdn_type": {
+        "type": "integer",
+        "description": "CDN运营商：1=CloudFlare，2=CloudFront，4=EdgeOne"
+      },
+      "ip_type": {
+        "type": "string",
+        "description": "IP类型，v4、v6 或 v4,v6"
+      },
+      "recordnum": {
+        "type": "integer",
+        "description": "每个线路解析的IP数量（1-50），默认2"
+      },
+      "ttl": {
+        "type": "integer",
+        "description": "TTL，默认600"
+      },
+      "remark": {
+        "type": "string",
+        "description": "备注"
+      },
+      "active": {
+        "type": "boolean",
+        "description": "set_active：是否启用"
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "add",
+      "edit",
+      "set_active",
+      "del",
+      "run"
+    ],
+    "readOnly": false,
+    "destructive": true
+  },
+  "schedule_query": {
+    "title": "查询定时切换",
+    "properties": {
+      "kw": {
+        "type": "string",
+        "description": "搜索关键词"
+      },
+      "type": {
+        "type": "integer",
+        "description": "搜索字段，1=域名/主机记录，2=记录ID，3=记录值，4=备注"
+      },
+      "stype": {
+        "type": "string",
+        "description": "按执行方式筛选，0=单次，1=周期",
+        "enum": [
+          "0",
+          "1"
+        ]
+      },
+      "offset": {
+        "type": "integer",
+        "description": "分页偏移量，默认0"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "每页数量，默认20"
+      },
+      "sortName": {
+        "type": "string",
+        "description": "排序字段"
+      },
+      "sortOrder": {
+        "type": "string",
+        "description": "排序方向",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "list"
+    ],
+    "readOnly": true,
+    "destructive": false
+  },
+  "schedule_manage": {
+    "title": "管理定时切换",
+    "properties": {
+      "id": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "任务ID（add 以外必填）"
+      },
+      "ids": {
+        "type": "array",
+        "items": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "description": "batch：任务ID列表"
+      },
+      "did": {
+        "type": [
+          "string",
+          "integer"
+        ],
+        "description": "域名ID"
+      },
+      "rr": {
+        "type": "string",
+        "description": "主机记录"
+      },
+      "recordid": {
+        "type": "string",
+        "description": "解析记录ID"
+      },
+      "recordinfo": {
+        "type": "object",
+        "description": "所选解析记录信息对象，如 {\"Value\":\"1.2.3.4\",\"Line\":\"default\",\"LineName\":\"默认\",\"TTL\":600}，取自 record_query subdomain 的返回"
+      },
+      "type": {
+        "type": "integer",
+        "description": "执行方式：0=单次，1=周期"
+      },
+      "cycle": {
+        "type": "integer",
+        "description": "周期：0=每天，1=每周，2=每月"
+      },
+      "switchdate": {
+        "type": "string",
+        "description": "周期日期：每周为0-6，每月为1-31"
+      },
+      "switchtime": {
+        "type": "string",
+        "description": "执行时间"
+      },
+      "switchtype": {
+        "type": "integer",
+        "description": "切换操作：0=修改解析，1=启用，2=暂停，3=删除"
+      },
+      "value": {
+        "type": "string",
+        "description": "switchtype=0：新的记录值"
+      },
+      "line": {
+        "type": "string",
+        "description": "switchtype=0 且为Cloudflare：空=不修改，0=仅DNS，1=代理"
+      },
+      "remark": {
+        "type": "string",
+        "description": "备注"
+      },
+      "active": {
+        "type": "boolean",
+        "description": "set_active：是否启用"
+      },
+      "act": {
+        "type": "string",
+        "description": "batch：操作类型",
+        "enum": [
+          "delete",
+          "open",
+          "close"
+        ]
+      }
+    },
+    "required": [],
+    "memberActions": [],
+    "actions": [
+      "add",
+      "edit",
+      "set_active",
+      "del",
+      "batch"
+    ],
+    "readOnly": false,
+    "destructive": true
+  }
+}

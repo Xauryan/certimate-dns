@@ -19,7 +19,7 @@ func (s *signer) Sign(req *http.Request) error {
 	// 签名机制：
 	// https://docsv4.qingcloud.com/user_guide/development_docs/api/api_list/dns/calling_method/signature/
 
-	date := time.Now().UTC().Format(time.RFC1123)
+	date := time.Now().UTC().Format(http.TimeFormat)
 
 	verb := req.Method
 
@@ -46,4 +46,9 @@ func (s *signer) Sign(req *http.Request) error {
 	req.Header.Set("Authorization", authorization)
 
 	return nil
+}
+
+// SignRequest authenticates a RouteWize API request, including its sorted query.
+func SignRequest(req *http.Request, accessKeyID, secretAccessKey string) error {
+	return (&signer{accessKeyId: accessKeyID, secretAccessKey: secretAccessKey}).Sign(req)
 }

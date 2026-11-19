@@ -7,7 +7,7 @@ export const getPocketBase = () => {
   if (pb) return pb;
   pb = new PocketBase(getBasePath());
   pb.afterSend = (res, data) => {
-    if ((res.status === 401 || res.status === 403) && pb.authStore?.isValid) {
+    if (res.status === 401 && pb.authStore?.isValid) {
       pb.authStore.clear();
       location.reload();
     }

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"net/http"
 	"time"
 )
 
@@ -8,11 +9,14 @@ const CollectionNameAccess = "access"
 
 type Access struct {
 	Meta
-	Name      string         `db:"name"     json:"name"`
-	Provider  string         `db:"provider" json:"provider"`
-	Config    map[string]any `db:"config"   json:"config"`
-	Reserve   string         `db:"reserve"  json:"reserve,omitempty"`
-	DeletedAt *time.Time     `db:"deleted" json:"deleted"`
+	// DNSManagementTransport is selected by the server after account resolution.
+	// It may reference authenticated proxy settings and must never be persisted or returned.
+	DNSManagementTransport *http.Transport `db:"-" json:"-"`
+	Name                   string          `db:"name"     json:"name"`
+	Provider               string          `db:"provider" json:"provider"`
+	Config                 map[string]any  `db:"config"   json:"config"`
+	Reserve                string          `db:"reserve"  json:"reserve,omitempty"`
+	DeletedAt              *time.Time      `db:"deleted" json:"deleted"`
 }
 
 type AccessConfigFor1Panel struct {

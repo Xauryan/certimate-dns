@@ -70,20 +70,27 @@ func (c *Certmgr) SetLogger(logger *slog.Logger) {
 }
 
 func (c *Certmgr) Upload(ctx context.Context, certPEM, privkeyPEM string) (*UploadResult, error) {
+	if _, err := tls.X509KeyPair([]byte(certPEM), []byte(privkeyPEM)); err != nil {
+		return nil, fmt.Errorf("invalid certificate or mismatched private key")
+	}
+
 	// 提取服务器证书和中间证书
 	serverCertPEM, issuerCertPEM, err := xcert.ExtractCertificatesFromPEM(certPEM)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract certs: %w", err)
+		return nil, fmt.Errorf("invalid certificate chain")
 	}
 
 	// 获取全部证书，避免重复上传
 	listCertificatesReq := &npmsdk.NginxListCertificatesRequest{}
 	listCertificatesResp, err := c.sdkClient.NginxListCertificatesWithContext(ctx, listCertificatesReq)
-	c.logger.Debug("sdk request 'nginx.ListCertificates'", slog.Any("request", listCertificatesReq), slog.Any("response", listCertificatesResp))
+	c.logger.Debug("sdk request 'nginx.ListCertificates'")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute sdk request 'nginx.ListCertificates': %w", err)
 	} else {
 		for _, certItem := range *listCertificatesResp {
+			if certItem == nil || certItem.Id <= 0 {
+				return nil, fmt.Errorf("NPM returned an invalid certificate record")
+			}
 			if certItem.Meta.Certificate == serverCertPEM &&
 				certItem.Meta.CertificateKey == privkeyPEM &&
 				certItem.Meta.IntermediateCertificate == issuerCertPEM {
@@ -103,23 +110,26 @@ func (c *Certmgr) Upload(ctx context.Context, certPEM, privkeyPEM string) (*Uplo
 		Provider: "other",
 	}
 	nginxCreateCertificateResp, err := c.sdkClient.NginxCreateCertificateWithContext(ctx, nginxCreateCertificateReq)
-	c.logger.Debug("sdk request 'nginx.CreateCertificate'", slog.Any("request", nginxCreateCertificateReq), slog.Any("response", nginxCreateCertificateResp))
+	c.logger.Debug("sdk request 'nginx.CreateCertificate'")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute sdk request 'nginx.CreateCertificate': %w", err)
 	}
+	if nginxCreateCertificateResp.Id <= 0 {
+		return nil, fmt.Errorf("NPM returned an invalid certificate ID")
+	}
 
 	// 上传证书文件
-	ngincxUploadCertificateReq := &npmsdk.NginxUploadCertificateRequest{
+	uploadCertificateReq := &npmsdk.NginxUploadCertificateRequest{
 		CertificateMeta: npmsdk.CertificateMeta{
 			Certificate:             serverCertPEM,
 			CertificateKey:          privkeyPEM,
 			IntermediateCertificate: issuerCertPEM,
 		},
 	}
-	ngincxUploadCertificateResp, err := c.sdkClient.NginxUploadCertificateWithContext(ctx, nginxCreateCertificateResp.Id, ngincxUploadCertificateReq)
-	c.logger.Debug("sdk request 'nginx.UploadCertificate'", slog.Int64("params.certId", nginxCreateCertificateResp.Id), slog.Any("request", ngincxUploadCertificateReq), slog.Any("response", ngincxUploadCertificateResp))
+	_, err = c.sdkClient.NginxUploadCertificateWithContext(ctx, nginxCreateCertificateResp.Id, uploadCertificateReq)
+	c.logger.Debug("sdk request 'nginx.UploadCertificate'", slog.Int64("params.certId", nginxCreateCertificateResp.Id))
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute sdk request 'nginx.UploadCertificate': %w", err)
+		return nil, fmt.Errorf("NPM created certificate %d but upload was not confirmed: %w", nginxCreateCertificateResp.Id, err)
 	}
 
 	return &UploadResult{
@@ -130,26 +140,30 @@ func (c *Certmgr) Upload(ctx context.Context, certPEM, privkeyPEM string) (*Uplo
 
 func (c *Certmgr) Replace(ctx context.Context, certIdOrName string, certPEM, privkeyPEM string) (*ReplaceResult, error) {
 	certId, err := strconv.ParseInt(certIdOrName, 10, 64)
-	if err != nil {
-		return nil, err
+	if err != nil || certId <= 0 {
+		return nil, fmt.Errorf("invalid certificate ID")
+	}
+
+	if _, err := tls.X509KeyPair([]byte(certPEM), []byte(privkeyPEM)); err != nil {
+		return nil, fmt.Errorf("invalid certificate or mismatched private key")
 	}
 
 	// 提取服务器证书和中间证书
 	serverCertPEM, issuerCertPEM, err := xcert.ExtractCertificatesFromPEM(certPEM)
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract certs: %w", err)
+		return nil, fmt.Errorf("invalid certificate chain")
 	}
 
 	// 上传证书文件
-	ngincxUploadCertificateReq := &npmsdk.NginxUploadCertificateRequest{
+	uploadCertificateReq := &npmsdk.NginxUploadCertificateRequest{
 		CertificateMeta: npmsdk.CertificateMeta{
 			Certificate:             serverCertPEM,
 			CertificateKey:          privkeyPEM,
 			IntermediateCertificate: issuerCertPEM,
 		},
 	}
-	ngincxUploadCertificateResp, err := c.sdkClient.NginxUploadCertificateWithContext(ctx, certId, ngincxUploadCertificateReq)
-	c.logger.Debug("sdk request 'nginx.UploadCertificate'", slog.Int64("params.certId", certId), slog.Any("request", ngincxUploadCertificateReq), slog.Any("response", ngincxUploadCertificateResp))
+	_, err = c.sdkClient.NginxUploadCertificateWithContext(ctx, certId, uploadCertificateReq)
+	c.logger.Debug("sdk request 'nginx.UploadCertificate'", slog.Int64("params.certId", certId))
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute sdk request 'nginx.UploadCertificate': %w", err)
 	}

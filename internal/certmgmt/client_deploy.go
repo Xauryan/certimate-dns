@@ -2,10 +2,12 @@ package certmgmt
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"log/slog"
 
 	"github.com/certimate-go/certimate/internal/certmgmt/deployers"
 	"github.com/certimate-go/certimate/internal/domain"
+	"github.com/certimate-go/certimate/pkg/core"
 )
 
 type DeployCertificateRequest struct {
@@ -19,11 +21,11 @@ type DeployCertificateRequest struct {
 	PrivateKeyPEM  string
 }
 
-type DeployCertificateResponse struct{}
+type DeployCertificateResponse = core.DeployerDeployResult
 
 func (c *Client) DeployCertificate(ctx context.Context, request *DeployCertificateRequest) (*DeployCertificateResponse, error) {
 	if request == nil {
-		return nil, fmt.Errorf("the request is nil")
+		return nil, errors.New("the request is nil")
 	}
 
 	providerFactory, err := deployers.Registries.Get(request.Provider)
@@ -31,18 +33,23 @@ func (c *Client) DeployCertificate(ctx context.Context, request *DeployCertifica
 		return nil, err
 	}
 
+	providerLog := newDeploymentLog(c.logger)
 	provider, err := providerFactory(&deployers.ProviderFactoryOptions{
 		ProviderAccessConfig:   request.ProviderAccessConfig,
 		ProviderExtendedConfig: request.ProviderExtendedConfig,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize deployment provider '%s': %w", request.Provider, err)
+		return nil, deploymentError(err, "could not initialize the selected deployment provider; verify its credentials and target settings")
 	}
 
-	provider.SetLogger(c.logger)
-	if _, err := provider.Deploy(ctx, request.CertificatePEM, request.PrivateKeyPEM); err != nil {
-		return nil, err
+	provider.SetLogger(slog.New(providerLog))
+	result, err := provider.Deploy(ctx, request.CertificatePEM, request.PrivateKeyPEM)
+	if err != nil {
+		return nil, deploymentError(err, "certificate deployment failed; check the selected remote target before retrying")
 	}
 
-	return &DeployCertificateResponse{}, nil
+	if result == nil {
+		result = &DeployCertificateResponse{}
+	}
+	return result, nil
 }

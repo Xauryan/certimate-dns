@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -12,9 +12,9 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarRightCollapse,
   IconMenu2,
-  IconWorld,
   IconPower,
   IconSettings,
+  IconWorld,
 } from "@tabler/icons-react";
 import { Alert, Button, Drawer, Layout, Menu, type MenuProps, theme } from "antd";
 
@@ -28,7 +28,11 @@ import { getAuthStore } from "@/repository/admin";
 import { isBrowserHappy } from "@/utils/browser";
 import { withBasePath } from "@/utils/url";
 
+const subscribeToAuth = (notify: () => void) => getAuthStore().onChange(notify);
+const currentToken = () => getAuthStore().token;
+
 const ConsoleLayout = () => {
+  useSyncExternalStore(subscribeToAuth, currentToken);
   const navigate = useNavigate();
 
   const { t } = useTranslation();
@@ -52,7 +56,8 @@ const ConsoleLayout = () => {
 
   const auth = getAuthStore();
   if (!auth.isValid || !auth.isSuperuser) {
-    return <Navigate to="/login" />;
+    const member = auth.isValid && ["dns_members", "dns_zone_sessions"].includes(auth.record?.collectionName ?? "");
+    return <Navigate replace to={member ? "/dns-member" : "/login"} />;
   }
 
   return (
@@ -69,10 +74,10 @@ const ConsoleLayout = () => {
           width={siderCollapsed ? 81 : 256}
         >
           <div className="flex size-full flex-col items-center justify-between overflow-hidden select-none">
-            <div className="w-full px-2">
+            <div className="min-h-0 w-full flex-1 overflow-y-auto px-2">
               <SiderMenu collapsed={siderCollapsed} />
             </div>
-            <div className="w-full px-2 pb-2">
+            <div className="w-full shrink-0 px-2 pb-2">
               <Menu
                 style={{ background: "transparent", borderInlineEnd: "none" }}
                 inlineCollapsed={siderCollapsed}
@@ -143,7 +148,7 @@ const ConsoleLayout = () => {
             </div>
             <div className="flex size-full items-center justify-between overflow-hidden px-4">
               <div className="flex items-center gap-4">
-                <SiderMenuDrawer trigger={<Button icon={<IconMenu2 size="1.25em" stroke="1.25" />} />} />
+                <SiderMenuDrawer trigger={<Button aria-label={t("dns.navigation")} icon={<IconMenu2 size="1.25em" stroke="1.25" />} />} />
               </div>
               <div className="flex size-full grow items-center justify-end gap-4 overflow-hidden">
                 <AppTheme.Dropdown>
@@ -161,7 +166,7 @@ const ConsoleLayout = () => {
           </Layout.Header>
 
           <Layout.Content className="relative flex-1 overflow-x-hidden overflow-y-auto">
-            <Outlet />
+            <Outlet key={auth.record?.id} />
           </Layout.Content>
         </Layout>
       </Layout>
@@ -175,60 +180,36 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
 
   const { t } = useTranslation();
 
-  const MENU_KEY_HOME = "/";
-  const MENU_KEY_WORKFLOWS = "/workflows";
-  const MENU_KEY_CERTIFICATES = "/certificates";
-  const MENU_KEY_ACCESSES = "/accesses";
-  const MENU_KEY_PRESETS = "/presets";
-  const MENU_KEY_SETTINGS = "/settings";
-  const menuItems: Required<MenuProps>["items"] = (
-    [
-      [MENU_KEY_HOME, "dashboard.page.heading", <IconHome size="1em" />],
-      [MENU_KEY_WORKFLOWS, "workflow.page.heading", <IconHierarchy3 size="1em" />],
-      [MENU_KEY_CERTIFICATES, "certificate.page.heading", <IconCertificate size="1em" />],
-      ["/dns", "dns.heading", <IconWorld size="1em" />],
-      [MENU_KEY_ACCESSES, "access.page.heading", <IconFingerprint size="1em" />],
-      [MENU_KEY_PRESETS, "preset.page.heading", <IconCodeDots size="1em" />],
-      [MENU_KEY_SETTINGS, "settings.page.heading", <IconSettings size="1em" />],
-    ] satisfies Array<[string, string, React.ReactNode]>
-  ).map(([key, label, icon]) => {
-    return {
-      key: key,
-      icon: (
-        <span className="anticon scale-125" role="img">
-          {icon}
-        </span>
-      ),
-      label: t(label),
-      onClick: () => {
-        navigate(key);
-        onSelect?.(key);
-      },
-    };
-  });
-  const [menuSelectedKey, setMenuSelectedKey] = useState<string>();
-
-  const getActiveMenuItem = () => {
-    const item =
-      menuItems.find((item) => item!.key === location.pathname) ??
-      menuItems.find((item) => item!.key !== MENU_KEY_HOME && location.pathname.startsWith(item!.key as string));
-    return item;
-  };
-
-  useEffect(() => {
-    const item = getActiveMenuItem();
-    if (item) {
-      setMenuSelectedKey(item.key as string);
-    } else {
-      setMenuSelectedKey(void 0);
-    }
-  }, [location.pathname]);
-
-  useEffect(() => {
-    if (menuSelectedKey && menuSelectedKey !== getActiveMenuItem()?.key) {
-      navigate(menuSelectedKey);
-    }
-  }, [menuSelectedKey]);
+  const dnsPages = [
+    ["/dns", "dns.records"],
+    ["/dns/catalog", "dns.catalog"],
+    ["/dns/automation", "dns.automation"],
+    ["/dns/cloudflare", "dns.cloudflare"],
+    ["/dns-cert", "dns.orders"],
+    ["/dns-permissions", "dnsauth.permissions"],
+    ["/dns-identity", "dns.identity"],
+    ["/dns-interfaces", "dns.interfaces"],
+  ];
+  const icon = (node: React.ReactNode) => (
+    <span className="anticon scale-125" role="img">
+      {node}
+    </span>
+  );
+  const item = (key: string, label: string, node: React.ReactNode) => ({ key, label: t(label), icon: icon(node) });
+  const menuItems: Required<MenuProps>["items"] = [
+    item("/", "dashboard.page.heading", <IconHome size="1em" />),
+    item("/workflows", "workflow.page.heading", <IconHierarchy3 size="1em" />),
+    item("/certificates", "certificate.page.heading", <IconCertificate size="1em" />),
+    {
+      ...item("dns-tools", "dns.heading", <IconWorld size="1em" />),
+      children: dnsPages.map(([key, label]) => ({ key, label: t(label) })),
+    },
+    item("/accesses", "access.page.heading", <IconFingerprint size="1em" />),
+    item("/presets", "preset.page.heading", <IconCodeDots size="1em" />),
+    item("/settings", "settings.page.heading", <IconSettings size="1em" />),
+  ];
+  const dnsActive = dnsPages.some(([key]) => key === location.pathname);
+  const selectedKey = dnsActive ? location.pathname : "/" + (location.pathname.split("/")[1] ?? "");
 
   return (
     <>
@@ -246,10 +227,12 @@ const SiderMenu = memo(({ collapsed, onSelect }: { collapsed?: boolean; onSelect
           style={{ background: "transparent", borderInlineEnd: "none" }}
           inlineCollapsed={collapsed}
           items={menuItems}
-          mode="vertical"
-          selectedKeys={menuSelectedKey ? [menuSelectedKey] : []}
-          onSelect={({ key }) => {
-            setMenuSelectedKey(key);
+          mode="inline"
+          defaultOpenKeys={dnsActive ? ["dns-tools"] : []}
+          selectedKeys={[selectedKey]}
+          onClick={({ key }) => {
+            navigate(key);
+            onSelect?.(key);
           }}
         />
       </div>

@@ -1,6 +1,6 @@
 # Certimate DNS 开发基线
 
-本分支从 Certimate v0.4.38 建立。本分支已实现 Cloudflare DNS 管理。三家适配器的完整验收条件见下文。
+本分支基于 Certimate v0.4.38。管理台复用原有授权凭据和证书工作流，并增加 DNS 域名目录、成员授权、解析自动化、商业证书和接口密钥。下文保留项目最初的路线图和验收条件。逐项实现、协议差异及待验能力见[彩虹 DNS 功能对照](dnsmgr-parity.zh-CN.md)。
 
 ## 复现基线
 
@@ -16,7 +16,7 @@ CGO_ENABLED=0 go build -mod=readonly -trimpath -o dist/certimate .
 ./dist/certimate serve --dir ./pb_data --http 127.0.0.1:8090
 ```
 
-浏览器打开 http://127.0.0.1:8090/ 。健康检查在 /api/health。CI 在 GitHub 托管的标准 ubuntu-26.04 x64 机器上构建相同的前端和 Go 可执行文件，再用临时空库检查首页和健康接口。CI 的权限为读取仓库内容，测试使用本地数据。
+浏览器打开 http://127.0.0.1:8090/ 。健康检查在 /api/health。CI 在 GitHub 托管的标准 ubuntu-26.04 x64 机器上构建相同的前端和 Go 可执行文件。进程测试打开临时空库，并从 v0.4.38 的数据库升级后检查会话、工作流、跨域权限、批量变更及重启恢复。CI 的权限为读取仓库内容，测试使用本地数据。
 
 ## 使用 Cloudflare DNS 管理
 

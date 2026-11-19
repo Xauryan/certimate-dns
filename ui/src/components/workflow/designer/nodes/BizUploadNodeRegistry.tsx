@@ -55,7 +55,7 @@ export const BizUploadNodeRegistry: NodeRegistry = {
                       }}
                     </Field>
                   ) : (
-                    <Field<string> name="config.certificate">
+                    <Field<string> name={fieldSource === "inventory" ? "config.certificateId" : "config.certificate"}>
                       {({ field: { value: fieldCertificate } }) => <>{fieldCertificate || t("workflow.detail.design.editor.placeholder")}</>}
                     </Field>
                   )}

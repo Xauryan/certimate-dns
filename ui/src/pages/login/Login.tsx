@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { IconArrowRight, IconLock, IconMail } from "@tabler/icons-react";
 import { App, Button, Card, Divider, Form, Input, Space } from "antd";
 import { createSchemaFieldRule } from "antd-zod";
@@ -102,6 +102,9 @@ const Login = () => {
                 </Button>
               </Form.Item>
             </Form>
+            <div className="mt-4 text-center">
+              <Link to="/dns-member">{t("dnsauth.portal")}</Link>
+            </div>
 
             <div className="mt-12">
               <div className="block max-sm:hidden">

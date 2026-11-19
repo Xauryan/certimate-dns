@@ -16,6 +16,7 @@
     "search.input": {
       "placeholder": "Search by certificate name or serial number ..."
     },
+    "manage_order": "Manage certificate order",
     "view.menu": "View details",
     "revoke.menu": "Revoke",
     "revoke.modal": {

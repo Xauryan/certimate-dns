@@ -11,7 +11,7 @@ import { revoke as revokeCertificate } from "@/api/certificates";
 import CertificateDetailDrawer from "@/components/certificate/CertificateDetailDrawer";
 import Empty from "@/components/Empty";
 import Show from "@/components/Show";
-import { CERTIFICATE_SOURCES, type CertificateModel } from "@/domain/certificate";
+import { CERTIFICATE_SOURCES, type CertificateModel, isCommercialCertificate } from "@/domain/certificate";
 import { useAppSettings, useZustandShallowSelector } from "@/hooks";
 import { get as getCertificate, list as listCertificates, remove as removeCertificate } from "@/repository/certificate";
 import { usePersistenceSettingsStore } from "@/stores/settings";
@@ -158,18 +158,29 @@ const CertificateList = () => {
         return (
           <div className="flex max-w-full flex-col gap-1 truncate">
             <Typography.Text ellipsis>{t(`certificate.props.source.${record.source}`)}</Typography.Text>
-            <Typography.Link
-              ellipsis
-              type="secondary"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (workflowId) {
-                  navigate(`/workflows/${workflowId}`);
-                }
-              }}
-            >
-              {record.expand?.workflowRef?.name ?? <span className="font-mono">{`#${workflowId}`}</span>}
-            </Typography.Link>
+            {isCommercialCertificate(record) ? (
+              <Typography.Link
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate("/dns-cert");
+                }}
+              >
+                {t("certificate.action.manage_order")}
+              </Typography.Link>
+            ) : workflowId ? (
+              <Typography.Link
+                ellipsis
+                type="secondary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (workflowId) {
+                    navigate(`/workflows/${workflowId}`);
+                  }
+                }}
+              >
+                {record.expand?.workflowRef?.name ?? <span className="font-mono">{`#${workflowId}`}</span>}
+              </Typography.Link>
+            ) : null}
           </div>
         );
       },
@@ -207,7 +218,7 @@ const CertificateList = () => {
                 key: "revoke",
                 label: t("certificate.action.revoke.menu"),
                 danger: true,
-                disabled: record.source !== CERTIFICATE_SOURCES.REQUEST || record.isRevoked,
+                disabled: record.source !== CERTIFICATE_SOURCES.REQUEST || isCommercialCertificate(record) || record.isRevoked,
                 icon: (
                   <span className="anticon scale-125">
                     <IconShieldCancel size="1em" />
