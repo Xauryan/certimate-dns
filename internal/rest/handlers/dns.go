@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"errors"
+	managed "github.com/certimate-go/certimate/internal/dnsmanagement"
+	dnsmodel "github.com/certimate-go/certimate/pkg/core/dnsmanagement"
 	"strconv"
 	"strings"
 	"time"
@@ -23,7 +25,7 @@ type dnsHandler struct{ accesses dnsAccessReader }
 
 func BindDNS(group *router.RouterGroup[*core.RequestEvent], accesses dnsAccessReader) {
 	h := dnsHandler{accesses: accesses}
-	dns := group.Group("/dns/cloudflare/{access}")
+	dns := group.Group("/dns/{provider}/{access}")
 	dns.GET("/zones", h.zones)
 	records := "/zones/{zone}/records"
 	dns.GET(records, h.records)
@@ -33,7 +35,7 @@ func BindDNS(group *router.RouterGroup[*core.RequestEvent], accesses dnsAccessRe
 	dns.DELETE(records+"/{record}", h.remove)
 }
 
-func (h dnsHandler) client(e *core.RequestEvent, zones bool) (*cf.Client, error) {
+func (h dnsHandler) client(e *core.RequestEvent, zones bool) (dnsmodel.Provider, error) {
 	a, err := h.accesses.GetById(e.Request.Context(), e.Request.PathValue("access"))
 	if domain.IsRecordNotFoundError(err) {
 		return nil, err
@@ -41,7 +43,16 @@ func (h dnsHandler) client(e *core.RequestEvent, zones bool) (*cf.Client, error)
 	if err != nil {
 		return nil, errors.New("could not read DNS account")
 	}
-	if a.Provider != "cloudflare" {
+	if a.Provider != e.Request.PathValue("provider") {
+		return nil, domain.ErrInvalidParams
+	}
+	switch a.Provider {
+	case "aliyun":
+		return managed.NewAliyun(a)
+	case "tencentcloud":
+		return managed.NewTencent(a)
+	case "cloudflare":
+	default:
 		return nil, domain.ErrInvalidParams
 	}
 	token, _ := a.Config["apiToken"].(string)
@@ -61,7 +72,7 @@ func pageNumber(e *core.RequestEvent) (int, error) {
 		return 1, nil
 	}
 	n, err := strconv.Atoi(s)
-	if err != nil || n < 1 {
+	if err != nil || n < 1 || n > 10000000 {
 		return 0, domain.ErrInvalidParams
 	}
 	return n, nil
@@ -108,11 +119,22 @@ func (h dnsHandler) export(e *core.RequestEvent) error {
 	if err != nil {
 		return resp.Err(e, err)
 	}
-	value, err := c.ExportDNSZone(e.Request.Context(), e.Request.PathValue("zone"))
+	exporter, ok := c.(interface {
+		ExportDNSZone(context.Context, string) (string, error)
+	})
+	if !ok {
+		return resp.Err(e, domain.NewError(400, "BIND export is unavailable for this provider"))
+	}
+	value, err := exporter.ExportDNSZone(e.Request.Context(), e.Request.PathValue("zone"))
 	return dnsReply(e, value, err)
 }
 
-func validTTL(ttl int) bool { return ttl == 1 || (ttl >= 30 && ttl <= 86400) }
+func validTTL(provider string, ttl int) bool {
+	if provider == "cloudflare" {
+		return ttl == 1 || (ttl >= 30 && ttl <= 86400)
+	}
+	return ttl >= 1 && ttl <= 604800
+}
 
 func finishDNSWrite(e *core.RequestEvent, id string, err error) error {
 	e.App.Logger().Info("DNS record operation", "method", e.Request.Method, "actor", e.Auth.Id, "access", e.Request.PathValue("access"), "zone", e.Request.PathValue("zone"), "record", id, "success", err == nil)
@@ -121,7 +143,7 @@ func finishDNSWrite(e *core.RequestEvent, id string, err error) error {
 
 func (h dnsHandler) create(e *core.RequestEvent) error {
 	var input cf.RecordInput
-	if err := e.BindBody(&input); err != nil || strings.TrimSpace(input.Name) == "" || input.Content == "" || !validTTL(input.TTL) {
+	if err := e.BindBody(&input); err != nil || strings.TrimSpace(input.Name) == "" || input.Content == "" || !validTTL(e.Request.PathValue("provider"), input.TTL) {
 		return resp.Err(e, domain.ErrInvalidParams)
 	}
 	switch input.Type {
@@ -139,7 +161,7 @@ func (h dnsHandler) create(e *core.RequestEvent) error {
 
 func (h dnsHandler) patch(e *core.RequestEvent) error {
 	var input cf.RecordPatch
-	if err := e.BindBody(&input); err != nil || input.Content == "" || !validTTL(input.TTL) {
+	if err := e.BindBody(&input); err != nil || input.Content == "" || !validTTL(e.Request.PathValue("provider"), input.TTL) {
 		return resp.Err(e, domain.ErrInvalidParams)
 	}
 	c, err := h.client(e, false)

@@ -29,7 +29,7 @@ function useDNSPage<T>(url: string, revision: number) {
   return response?.url === url && response.revision === revision ? response : undefined;
 }
 
-function Records({ base, zone, back }: { base: string; zone: Zone; back: () => void }) {
+function Records({ base, zone, back, provider }: { base: string; zone: Zone; back: () => void; provider: string }) {
   const { t } = useTranslation();
   const { message, modal } = App.useApp();
   const [page, setPage] = useState(1);
@@ -39,6 +39,8 @@ function Records({ base, zone, back }: { base: string; zone: Zone; back: () => v
   const [busy, setBusy] = useState(false);
   const writing = useRef(false);
   const [exporting, setExporting] = useState(false);
+  const cf = provider === "cloudflare";
+  const ttlHelp = t(cf ? "dns.ttlHelp" : "dns.providerTtl");
   const records = base + "/zones/" + encodeURIComponent(zone.id) + "/records";
   const response = useDNSPage<DNSRecord>(records + "?" + new URLSearchParams({ page: String(page), name: filter }), revision);
   const refresh = () => setRevision((value) => value + 1);
@@ -125,9 +127,11 @@ function Records({ base, zone, back }: { base: string; zone: Zone; back: () => v
         <Button type="primary" onClick={() => setEditor("new")}>
           {t("dns.create")}
         </Button>
-        <Button loading={exporting} onClick={download}>
-          {t("dns.export")}
-        </Button>
+        {cf && (
+          <Button loading={exporting} onClick={download}>
+            {t("dns.export")}
+          </Button>
+        )}
         <Button onClick={refresh}>{t("dns.refresh")}</Button>
       </Space>
       {response?.error && <Alert type="error" showIcon title={response.error} />}
@@ -141,8 +145,10 @@ function Records({ base, zone, back }: { base: string; zone: Zone; back: () => v
           { title: t("dns.name"), dataIndex: "name" },
           { title: t("dns.type"), dataIndex: "type" },
           { title: t("dns.content"), dataIndex: "content", render: (v: string) => <span className="break-all">{v}</span> },
-          { title: "TTL", dataIndex: "ttl", render: (v: number) => (v === 1 ? t("dns.auto") : v) },
-          { title: t("dns.proxy"), dataIndex: "proxied", render: (v: boolean) => (v ? t("dns.on") : t("dns.off")) },
+          { title: "TTL", dataIndex: "ttl", render: (v: number) => (cf && v === 1 ? t("dns.auto") : v) },
+          cf
+            ? { title: t("dns.proxy"), dataIndex: "proxied", render: (v: boolean) => (v ? t("dns.on") : t("dns.off")) }
+            : { title: t("dns.line"), dataIndex: "line" },
           {
             title: t("dns.actions"),
             render: (_, row) => (
@@ -176,7 +182,7 @@ function Records({ base, zone, back }: { base: string; zone: Zone; back: () => v
             id="dns-record-editor"
             layout="vertical"
             preserve={false}
-            initialValues={editor === "new" ? { type: "A", ttl: 1 } : editor}
+            initialValues={editor === "new" ? { type: "A", ttl: cf ? 1 : 600 } : editor}
             onFinish={save}
           >
             <Form.Item name="type" label={t("dns.type")} rules={[{ required: true }]}>
@@ -191,16 +197,18 @@ function Records({ base, zone, back }: { base: string; zone: Zone; back: () => v
             <Form.Item
               name="ttl"
               label="TTL"
-              extra={t("dns.ttlHelp")}
+              extra={ttlHelp}
               rules={[
                 { required: true },
                 {
                   validator: (_, v) =>
-                    v === 1 || (Number.isInteger(v) && v >= 30 && v <= 86400) ? Promise.resolve() : Promise.reject(new Error(t("dns.ttlHelp"))),
+                    Number.isInteger(v) && (cf ? v === 1 || (v >= 30 && v <= 86400) : v >= 1 && v <= 604800)
+                      ? Promise.resolve()
+                      : Promise.reject(new Error(ttlHelp)),
                 },
               ]}
             >
-              <InputNumber precision={0} min={1} max={86400} />
+              <InputNumber precision={0} min={1} max={cf ? 86400 : 604800} />
             </Form.Item>
           </Form>
         </Modal>
@@ -209,13 +217,13 @@ function Records({ base, zone, back }: { base: string; zone: Zone; back: () => v
   );
 }
 
-function Zones({ base }: { base: string }) {
+function Zones({ base, provider }: { base: string; provider: string }) {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
   const [zone, setZone] = useState<Zone>();
   const response = useDNSPage<Zone>(base + "/zones?page=" + page, revision);
-  if (zone) return <Records key={zone.id} base={base} zone={zone} back={() => setZone(undefined)} />;
+  if (zone) return <Records provider={provider} key={zone.id} base={base} zone={zone} back={() => setZone(undefined)} />;
   return (
     <>
       <Space>
@@ -249,7 +257,7 @@ function Zones({ base }: { base: string }) {
 
 export default function DNSManager() {
   const { t } = useTranslation();
-  const [accounts, setAccounts] = useState<{ value: string; label: string }[]>();
+  const [accounts, setAccounts] = useState<{ value: string; label: string; provider: string }[]>();
   const [account, setAccount] = useState<string>();
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
@@ -258,7 +266,9 @@ export default function DNSManager() {
     listAccesses()
       .then(({ items }) => {
         if (!current) return;
-        const options = items.filter((item) => item.provider === "cloudflare").map((item) => ({ value: item.id, label: item.name }));
+        const options = items
+          .filter((item) => ["cloudflare", "aliyun", "tencentcloud"].includes(item.provider))
+          .map((item) => ({ value: item.id, label: item.name + " · " + t("dns.providers." + item.provider), provider: item.provider }));
         setAccounts(options);
         setAccount(options[0]?.value);
         setError("");
@@ -269,7 +279,8 @@ export default function DNSManager() {
     return () => {
       current = false;
     };
-  }, [revision]);
+  }, [revision, t]);
+  const provider = accounts?.find((a) => a.value === account)?.provider;
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6">
       <Typography.Title level={3} style={{ margin: 0 }}>
@@ -282,7 +293,7 @@ export default function DNSManager() {
         <Link to="/accesses">{t("dns.accounts")}</Link>
       </Space>
       {accounts?.length === 0 && <Alert type="info" title={t("dns.noAccounts")} />}
-      {account && <Zones key={account} base={"/api/dns/cloudflare/" + encodeURIComponent(account)} />}
+      {account && provider && <Zones key={account} provider={provider} base={"/api/dns/" + provider + "/" + encodeURIComponent(account)} />}
     </div>
   );
 }

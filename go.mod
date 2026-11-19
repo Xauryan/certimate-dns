@@ -118,7 +118,7 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
-	github.com/go-acme/tencentclouddnspod v1.3.24 // indirect
+	github.com/go-acme/tencentclouddnspod v1.3.24
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-openapi/jsonreference v0.21.5 // indirect
 	github.com/go-openapi/swag v0.25.5 // indirect
@@ -207,7 +207,7 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/ganigeorgiev/fexpr v0.6.0 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
-	github.com/go-acme/alidns-20150109/v5 v5.5.0 // indirect
+	github.com/go-acme/alidns-20150109/v5 v5.5.0
 	github.com/go-acme/esa-20240910/v3 v3.4.0 // indirect
 	github.com/go-acme/jdcloud-sdk-go v1.64.0 // indirect
 	github.com/go-acme/tencentedgdeone v1.3.38 // indirect

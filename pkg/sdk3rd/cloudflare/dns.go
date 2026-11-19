@@ -4,53 +4,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	dns "github.com/certimate-go/certimate/pkg/core/dnsmanagement"
 	"net/http"
 	"regexp"
 	"strconv"
 )
 
-const DNSPageSize = 20
+const DNSPageSize = dns.DNSPageSize
 
-type Zone struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Status string `json:"status"`
-}
-
-type DNSRecord struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Name    string `json:"name"`
-	Content string `json:"content"`
-	TTL     int    `json:"ttl"`
-	Proxied bool   `json:"proxied"`
-}
-
-type PageInfo struct {
-	Page  int `json:"page"`
-	Total int `json:"total_count"`
-}
-
-type DNSPage[T any] struct {
-	Items []T      `json:"result"`
-	Info  PageInfo `json:"result_info"`
-}
-
-type RecordInput struct {
-	Type    string `json:"type"`
-	Name    string `json:"name"`
-	Content string `json:"content"`
-	TTL     int    `json:"ttl"`
-}
-
-// RecordPatch changes only the value and TTL. Proxy settings, tags and comments stay with the record.
-type RecordPatch struct {
-	Content string `json:"content"`
-	TTL     int    `json:"ttl"`
-}
+type Zone = dns.Zone
+type DNSRecord = dns.DNSRecord
+type DNSPage[T any] = dns.DNSPage[T]
+type RecordInput = dns.RecordInput
+type RecordPatch = dns.RecordPatch
+type PageInfo = dns.PageInfo
 
 var dnsID = regexp.MustCompile("^[0-9a-f]{32}$")
-var ErrInvalidDNSRequest = errors.New("invalid DNS request")
+var ErrInvalidDNSRequest = dns.ErrInvalidDNSRequest
 
 type dnsResult[T any] struct {
 	sdkResponseBase

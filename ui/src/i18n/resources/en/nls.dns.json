@@ -1,9 +1,9 @@
 {
   "$ns": "dns",
   "heading": "DNS management",
-  "account": "Cloudflare account",
+  "account": "DNS account",
   "accounts": "Manage credentials",
-  "noAccounts": "Add a Cloudflare credential to manage its DNS zones.",
+  "noAccounts": "Add a supported DNS provider credential to manage its zones.",
   "zones": "Zones",
   "zone": "Zone",
   "status": "Status",
@@ -24,5 +24,12 @@
   "confirmDelete": "Delete this DNS record?",
   "saved": "Record saved",
   "deleted": "Record deleted",
-  "ttlHelp": "Use 1 for automatic TTL or 30–86400 seconds. The minimum depends on your plan."
+  "ttlHelp": "Use 1 for automatic TTL or 30–86400 seconds. The minimum depends on your plan.",
+  "line": "Record line",
+  "providerTtl": "TTL in seconds. The minimum depends on the zone plan.",
+  "providers": {
+    "aliyun": "Alibaba Cloud DNS",
+    "tencentcloud": "Tencent Cloud DNSPod",
+    "cloudflare": "Cloudflare"
+  }
 }
