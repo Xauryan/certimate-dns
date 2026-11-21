@@ -71,7 +71,7 @@ func Bind(group *router.RouterGroup[*core.RequestEvent], resolve Resolve) {
 			}
 		}
 		f := Filter{Page: page, AccountID: q.Get("accessId"), Search: q.Get("q"), Tag: q.Get("tag"), GroupName: q.Get("group"), Due: q.Get("due") == "true"}
-		data, err := listDomains(e.Request.Context(), e.App, f, time.Now())
+		data, err := AdminListDomains(e.Request.Context(), e.App, f, time.Now())
 		return reply(e, data, err)
 	})
 	g.GET("/domains/{id}", func(e *core.RequestEvent) error {

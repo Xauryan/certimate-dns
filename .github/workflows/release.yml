@@ -1,0 +1,205 @@
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ui:
+    name: Build the embedded UI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: |
+          npm --prefix ui ci
+          npm --prefix ui run build
+          test -s ui/dist/index.html
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-ui
+          path: ui/dist/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+
+  server:
+    name: Build server (${{ matrix.platform }})
+    needs: ui
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: darwin_amd64, goos: darwin, goarch: amd64}
+          - {platform: darwin_arm64, goos: darwin, goarch: arm64}
+          - {platform: linux_amd64, goos: linux, goarch: amd64}
+          - {platform: linux_arm64, goos: linux, goarch: arm64}
+          - {platform: linux_armv7, goos: linux, goarch: arm, goarm: '7'}
+          - {platform: windows_386, goos: windows, goarch: '386'}
+          - {platform: windows_amd64, goos: windows, goarch: amd64}
+          - {platform: windows_arm64, goos: windows, goarch: arm64}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-ui
+          path: ui/dist
+      - name: Build and package the server
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          GOEXPERIMENT: ${{ matrix.goos == 'windows' && 'nodwarf5' || '' }}
+          CGO_ENABLED: '0'
+        run: |
+          test -s ui/dist/index.html
+          go build -mod=readonly -trimpath -ldflags='-s -w' -o "$RUNNER_TEMP/certimate" .
+          if [[ "$PLATFORM" == linux_amd64 ]]; then
+            version=$("$RUNNER_TEMP/certimate" version)
+            [[ ${version%%$'\n'*} == "Certimate $GITHUB_REF_NAME" ]]
+          fi
+          bash .github/scripts/package-release.sh server "$GITHUB_REF_NAME" "$PLATFORM" \
+            "$RUNNER_TEMP/certimate" "$RUNNER_TEMP/release-assets"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-package-server-${{ matrix.platform }}
+          path: ${{ runner.temp }}/release-assets/*.zip
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+  agent:
+    name: Build DDNS agent (${{ matrix.platform }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: linux_amd64, target: x86_64-unknown-linux-gnu}
+          - {platform: windows_amd64, target: x86_64-pc-windows-gnu}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install the Rust target and build
+        working-directory: cmd/ddns-agent-native
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          RUST_TARGET: ${{ matrix.target }}
+        run: |
+          if [[ "$PLATFORM" == windows_amd64 ]] && ! command -v x86_64-w64-mingw32-gcc >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          fi
+          rustup target add "$RUST_TARGET"
+          cargo build --locked --release --target "$RUST_TARGET"
+      - name: Package and smoke-test the release archive
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          RUST_TARGET: ${{ matrix.target }}
+        run: |
+          binary="cmd/ddns-agent-native/target/$RUST_TARGET/release/certimate-ddns-agent"
+          if [[ "$PLATFORM" == windows_amd64 ]]; then
+            binary+=.exe
+            file "$binary" | grep 'PE32+.*x86-64'
+          fi
+          output="$RUNNER_TEMP/release-assets"
+          bash .github/scripts/package-release.sh agent "$GITHUB_REF_NAME" "$PLATFORM" "$binary" "$output"
+          if [[ "$PLATFORM" == linux_amd64 ]]; then
+            mkdir -p "$RUNNER_TEMP/agent-smoke"
+            unzip -q "$output/certimate-ddns-agent_${GITHUB_REF_NAME}_${PLATFORM}.zip" -d "$RUNNER_TEMP/agent-smoke"
+            "$RUNNER_TEMP/agent-smoke/certimate-ddns-agent" --version
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-package-agent-${{ matrix.platform }}
+          path: ${{ runner.temp }}/release-assets/*.zip
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: Verify all assets and publish
+    needs: [server, agent]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-package-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish complete GitHub Release
+        working-directory: release-assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          LC_ALL: C
+        run: |
+          tag=$GITHUB_REF_NAME
+          archives=()
+          for platform in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64 linux_armv7 windows_386 windows_amd64 windows_arm64; do
+            archives+=("certimate_${tag}_${platform}.zip")
+          done
+          for platform in linux_amd64 windows_amd64; do
+            archives+=("certimate-ddns-agent_${tag}_${platform}.zip")
+          done
+          found=(*.zip)
+          [[ ${#found[@]} == ${#archives[@]} ]]
+          for archive in "${archives[@]}"; do test -s "$archive"; done
+          sha256sum "${found[@]}" > checksums.txt
+          assets=("${found[@]}" checksums.txt)
+          printf '%s\n' "${assets[@]}" | sort > expected-names
+          sha256sum "${assets[@]}" | awk '{print $2 "\tsha256:" $1}' | sort > expected-digests
+
+          release=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" | \
+            jq -sc --arg tag "$tag" '[.[][] | select(.tag_name == $tag)] | first // null')
+          if [[ "$release" == null ]]; then
+            gh release create "$tag" --verify-tag --draft --generate-notes --title "$tag"
+            release=$(gh release view "$tag" --json databaseId,isDraft | jq -c '{id: .databaseId, draft: .isDraft}')
+          fi
+          id=$(jq -er '.id' <<< "$release")
+          asset_path="repos/$GH_REPO/releases/$id/assets?per_page=100"
+          if [[ $(jq -r '.draft' <<< "$release") == false ]]; then
+            gh api --paginate "$asset_path" | jq -sr '.[][] | select(.state == "uploaded") | .name' | sort > remote-names
+            diff -u expected-names remote-names
+            printf 'Release %s is already published with all expected assets.\n' "$tag"
+            exit 0
+          fi
+
+          gh release upload "$tag" "${assets[@]}" --clobber
+          gh api --paginate "$asset_path" | \
+            jq -sr '.[][] | select(.state == "uploaded") | [.name, .digest] | @tsv' | sort > remote-digests
+          diff -u expected-digests remote-digests
+          gh release edit "$tag" --draft=false

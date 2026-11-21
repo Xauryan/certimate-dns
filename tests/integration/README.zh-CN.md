@@ -19,3 +19,15 @@ python3 tests/integration/acceptance.py --binary ./dist/certimate
 | 记录和停用 | 已登录的编辑者通过真实 HTTP 路由完成 TXT 新增、查询、修改、删除，以及用一次 PowerDNS Zone PATCH 将 TXT 改名并转换为指定优先级的 MX。验证目标记录 ID 变化、已有源和目标记录保留，过期快照在写入前被拒绝。禁用账号会阻止成员和管理员访问提供方，并阻止同步；重新启用后原工作区授权恢复。禁用成员使其现有会话失去读取能力。 |
 
 每次运行都会生成临时密码、PowerDNS 测试密钥和本地数据库。应用和提供方均绑定回环地址。真实 DNS 发布、ACME 签发与清理、商业订单、远端证书部署及消息送达需要在获授权的环境单独验收。
+
+## DDNS 设备上报与同步
+
+需要编译好的 Linux Rust DDNS 客户端和 `openssl`。测试由临时 CA 签发回环 HTTPS 服务证书，验证客户端拒绝不受信任的 CA，并在指定 CA 后通过 HTTPS 上报。之后用固定的网卡、MAC、IPv4 和 IPv6 数据验证服务端行为。
+
+```sh
+(cd cmd/ddns-agent-native && cargo build --locked --release)
+python3 tests/integration/ddns_acceptance.py --binary ./dist/certimate \
+  --agent cmd/ddns-agent-native/target/release/certimate-ddns-agent
+```
+
+验收覆盖管理员和设备授权、设备上线和信息展示、令牌轮换及撤销。PowerDNS 模拟器回读两轮地址变更，验证绑定的 A 和 AAAA 记录保留各自的 TTL，其他记录保持原值。

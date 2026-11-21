@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Certimate DDNS reports every five minutes
+
+[Timer]
+OnActiveSec=30s
+OnCalendar=*-*-* *:00/5:00
+RandomizedDelaySec=45s
+FixedRandomDelay=yes
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

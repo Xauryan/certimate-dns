@@ -13,6 +13,7 @@ import (
 
 	"github.com/certimate-go/certimate/internal/certmgmt"
 	"github.com/certimate-go/certimate/internal/cfmanagement"
+	"github.com/certimate-go/certimate/internal/ddnsfleet"
 	"github.com/certimate-go/certimate/internal/dnsadvanced"
 	"github.com/certimate-go/certimate/internal/dnsauth"
 	"github.com/certimate-go/certimate/internal/dnsautomation"
@@ -111,7 +112,10 @@ func BindDNSConsole(app core.App, r *router.Router[*core.RequestEvent]) (func(),
 	dnsmcp.Bind(r.RouterGroup, d.resolve, dnsmcp.Services{Cert: certs, Deploy: certmgmt.DeployPublishedCertificate, Automation: auto, Optimize: optimizer})
 	ctx, cancel := context.WithCancel(context.Background())
 	var workers sync.WaitGroup
-	workers.Add(3)
+	fleet := ddnsfleet.New(d.scoped)
+	fleet.Bind(api)
+	workers.Add(4)
+	go func() { defer workers.Done(); fleet.Run(ctx, app) }()
 	go func() { defer workers.Done(); auto.Run(ctx) }()
 	go func() {
 		defer workers.Done()

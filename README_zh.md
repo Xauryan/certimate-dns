@@ -1,4 +1,4 @@
-**Certimate DNS** 基于 Certimate v0.4.38，支持 DNS 账号与域名目录、成员授权、批量解析、定时任务及证书工作流。各服务商的功能、验证结果和缺项见对照表。[本地运行](docs/dns-development.zh-CN.md) · [彩虹 DNS 功能对照](docs/dnsmgr-parity.zh-CN.md) · [迁移指南](docs/dnsmgr-migration.zh-CN.md)。
+**Certimate DNS** 基于 Certimate v0.4.38，支持 DNS 账号与域名目录、成员授权、批量解析、DDNS 节点管理、定时任务及证书工作流。各服务商的功能、验证结果和缺项见对照表。[本地运行](docs/dns-development.zh-CN.md) · [彩虹 DNS 功能对照](docs/dnsmgr-parity.zh-CN.md) · [迁移指南](docs/dnsmgr-migration.zh-CN.md) · [DDNS 节点接入](cmd/ddns-agent-native/README.md)。
 
 <h1 align="center">🔒 Certimate</h1>
 

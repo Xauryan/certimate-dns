@@ -6,20 +6,27 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 
 	"github.com/certimate-go/certimate/internal/app"
 	"github.com/certimate-go/certimate/internal/domain"
 )
 
-type AccessRepository struct{}
+type AccessRepository struct {
+	app core.App
+}
 
 func NewAccessRepository() *AccessRepository {
-	return &AccessRepository{}
+	return NewAccessRepositoryFor(app.GetApp())
+}
+
+func NewAccessRepositoryFor(app core.App) *AccessRepository {
+	return &AccessRepository{app: app}
 }
 
 func (r *AccessRepository) GetById(ctx context.Context, id string) (*domain.Access, error) {
-	record, err := app.GetApp().FindRecordById(domain.CollectionNameAccess, id)
+	record, err := r.app.FindRecordById(domain.CollectionNameAccess, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, domain.ErrRecordNotFound
@@ -58,8 +65,38 @@ func (r *AccessRepository) castRecordToModel(record *core.Record) (*domain.Acces
 	return access, nil
 }
 
+// CreateDNSCredential creates an access record with the same name and
+// provider identity checks used when managing DNS accounts.
+func (r *AccessRepository) CreateDNSCredential(ctx context.Context, access *domain.Access) (*domain.Access, error) {
+	var created *domain.Access
+	err := r.app.RunInTransaction(func(tx core.App) error {
+		collection, err := tx.FindCollectionByNameOrId(domain.CollectionNameAccess)
+		if err != nil {
+			return err
+		}
+		_, err = tx.FindFirstRecordByFilter(collection, "provider={:provider} && name={:name} && reserve='' && deleted=''",
+			dbx.Params{"provider": access.Provider, "name": access.Name})
+		if err == nil {
+			return domain.NewError(409, "DNS credential name already exists for this provider")
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		record := core.NewRecord(collection)
+		record.Set("name", access.Name)
+		record.Set("provider", access.Provider)
+		record.Set("config", access.Config)
+		if err := tx.SaveWithContext(ctx, record); err != nil {
+			return err
+		}
+		created, err = r.castRecordToModel(record)
+		return err
+	})
+	return created, err
+}
+
 func (r *AccessRepository) Save(ctx context.Context, access *domain.Access) (*domain.Access, error) {
-	collection, err := app.GetApp().FindCollectionByNameOrId(domain.CollectionNameAccess)
+	collection, err := r.app.FindCollectionByNameOrId(domain.CollectionNameAccess)
 	if err != nil {
 		return access, err
 	}
@@ -68,7 +105,7 @@ func (r *AccessRepository) Save(ctx context.Context, access *domain.Access) (*do
 		return access, domain.ErrRecordNotFound
 	}
 
-	record, err := app.GetApp().FindRecordById(collection, access.Id)
+	record, err := r.app.FindRecordById(collection, access.Id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return access, domain.ErrRecordNotFound
@@ -83,7 +120,7 @@ func (r *AccessRepository) Save(ctx context.Context, access *domain.Access) (*do
 	if access.DeletedAt != nil {
 		record.Set("deleted", access.DeletedAt)
 	}
-	if err := app.GetApp().Save(record); err != nil {
+	if err := r.app.Save(record); err != nil {
 		return access, err
 	}
 

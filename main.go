@@ -42,6 +42,26 @@ func main() {
 	pb.RootCmd.AddCommand(cmd.NewWinscCommand(pb))
 	pb.RootCmd.AddCommand(dnsidentity.NewResetCommand(pb))
 	pb.RootCmd.AddCommand(dnsidentity.NewAdminResetCommand(pb))
+	ddnsCommand := cmd.NewDDNSNodeCommand(pb)
+	pb.RootCmd.AddCommand(ddnsCommand)
+
+	// PocketBase Start does not propagate errors from Cobra command execution.
+	// Console automation for DDNS needs unsuccessful commands to exit nonzero.
+	selectedCommand, _, _ := pb.RootCmd.Find(os.Args[1:])
+	for selectedCommand != nil && selectedCommand.Parent() != pb.RootCmd {
+		selectedCommand = selectedCommand.Parent()
+	}
+	if selectedCommand == ddnsCommand {
+		err := pb.RootCmd.Execute()
+		if cleanupErr := pb.ResetBootstrapState(); cleanupErr != nil {
+			slog.Error("[CERTIMATE] Could not close the application.", slog.Any("error", cleanupErr))
+			os.Exit(1)
+		}
+		if err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 
 	isServeCmd := slices.Contains(os.Args[1:], "serve")
 

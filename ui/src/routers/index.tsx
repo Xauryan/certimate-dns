@@ -7,6 +7,7 @@ import CertificateList from "@/pages/certificates/CertificateList";
 import CloudflareManager from "@/pages/cfmanagement/CloudflareManager";
 import ConsoleLayout from "@/pages/ConsoleLayout";
 import Dashboard from "@/pages/dashboard/Dashboard";
+import DNSDDNS from "@/pages/ddns/DNSDDNS";
 import DNSManager from "@/pages/dns/DNSManager";
 import DNSMember from "@/pages/dnsauth/DNSMember";
 import DNSPermissions from "@/pages/dnsauth/DNSPermissions";
@@ -46,6 +47,7 @@ export const router = createHashRouter([
       { path: "/dns/catalog", element: <DomainCatalog /> },
       { path: "/dns/cloudflare", element: <CloudflareManager /> },
       { path: "/dns/automation", element: <DNSAutomation /> },
+      { path: "/dns/ddns", element: <DNSDDNS /> },
       { path: "/dns-automation", element: <DNSAutomation /> },
       { path: "/dns-cert", element: <CertificateOrders /> },
       { path: "/dns-cert/deployments", element: <CertificateDeployments /> },

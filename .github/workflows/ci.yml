@@ -17,7 +17,7 @@ concurrency:
 jobs:
   build:
     name: Build and test Certimate
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       CGO_ENABLED: '0'
@@ -48,19 +48,43 @@ jobs:
           npm --prefix tests/browser test
       - name: Build Linux binary
         run: go build -mod=readonly -trimpath -ldflags="-s -w" -o "$RUNNER_TEMP/certimate" .
-      - name: Cross-build Windows IIS certificate binding helper
+      - name: Cross-build Windows IIS binding helper
         env:
           GOOS: windows
           GOARCH: amd64
         run: go build -mod=readonly -o "$RUNNER_TEMP/certimate-iis-bind.exe" ./cmd/certimate-iis-bind
+      - name: Test and build the Rust DDNS agent for Linux and Windows
+        working-directory: cmd/ddns-agent-native
+        run: |
+          if ! command -v x86_64-w64-mingw32-gcc >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          fi
+          rustup target add x86_64-pc-windows-gnu
+          cargo test --locked
+          cargo build --locked --release
+          cargo build --locked --release --target x86_64-pc-windows-gnu
+      - name: Check the native Linux agent's systemd units
+        run: |
+          units="$RUNNER_TEMP/ddns-units"
+          mkdir -p "$units"
+          agent="$PWD/cmd/ddns-agent-native/target/release/certimate-ddns-agent"
+          sed "s|/usr/local/bin/certimate-ddns-agent-native|$agent|" \
+            deploy/systemd/certimate-ddns-agent-native.service > "$units/certimate-ddns-agent-native.service"
+          cp deploy/systemd/certimate-ddns-agent-native.timer "$units/"
+          systemd-analyze verify --man=no "$units"/certimate-ddns-agent-native.{service,timer}
       - name: Run offline Go tests
         shell: bash
         run: |
           # Live vendor suites live under providers-tester and use external accounts.
           mapfile -t packages < <(git ls-files 'pkg/*_test.go' | grep -v '/providers-tester/' | sed 's|/[^/]*$||; s|^|./|' | sort -u)
-          go test -mod=readonly ./cmd/dnsmgr-migrate ./internal/... "${packages[@]}"
+          go test -mod=readonly ./cmd ./cmd/dnsmgr-migrate ./internal/... "${packages[@]}"
       - name: Exercise v0.4.38 database upgrade, grants, DNS CRUD and restart
         run: python3 tests/integration/acceptance.py --binary "$RUNNER_TEMP/certimate"
+      - name: Exercise DDNS reporting and provider writes over loopback
+        run: |
+          python3 tests/integration/ddns_acceptance.py --binary "$RUNNER_TEMP/certimate" \
+            --agent cmd/ddns-agent-native/target/release/certimate-ddns-agent
       - name: Check first start with an empty database
         shell: bash
         run: |
@@ -79,7 +103,7 @@ jobs:
 
   container:
     name: Build and start the documented source image
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
