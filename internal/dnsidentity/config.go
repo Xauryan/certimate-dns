@@ -2,6 +2,7 @@
 package dnsidentity
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -18,7 +19,11 @@ import (
 	"github.com/certimate-go/certimate/internal/dnsauth"
 )
 
-const secretEnv = "CERTIMATE_DNS_QQBOT_SECRET"
+const (
+	secretEnv         = "CERTIMATE_DNS_QQBOT_SECRET"
+	proofBodyBytes    = 4 << 10
+	settingsBodyBytes = 8 << 10
+)
 
 var appIDPattern = regexp.MustCompile(`^[0-9]{1,32}$`)
 var recipientPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
@@ -35,8 +40,17 @@ func getDestination(app core.App) (d destination, err error) {
 	return
 }
 
-func decode(e *core.RequestEvent, target any) error {
-	decoder := json.NewDecoder(e.Request.Body)
+func decode(e *core.RequestEvent, target any, maxBytes int64) error {
+	// PocketBase rewinds the request body on EOF. Check for trailing JSON on
+	// the buffered bytes so a network reader returning data with EOF is safe.
+	body, err := io.ReadAll(io.LimitReader(e.Request.Body, maxBytes+1))
+	if int64(len(body)) > maxBytes || errors.Is(err, apis.ErrRequestEntityTooLarge) {
+		return apis.ErrRequestEntityTooLarge
+	}
+	if err != nil {
+		return e.BadRequestError("Invalid request body.", nil)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return e.BadRequestError("Invalid request body.", nil)
@@ -50,7 +64,7 @@ func decode(e *core.RequestEvent, target any) error {
 // Bind registers management endpoints under the /api group. The webhook is
 // separately registered by BindWebhook because Tencent authenticates callbacks.
 func Bind(group *router.RouterGroup[*core.RequestEvent]) {
-	api := group.Group("/dns-identity").Bind(apis.RequireSuperuserAuth(), apis.BodyLimit(8192))
+	api := group.Group("/dns-identity").Bind(apis.RequireSuperuserAuth(), apis.BodyLimit(settingsBodyBytes))
 	bindTOTP(group)
 	bindAdminAuth(group)
 	group.GET("/dns-identity/captcha", serveCaptcha)
@@ -73,7 +87,7 @@ func Bind(group *router.RouterGroup[*core.RequestEvent]) {
 			AppID   *string `json:"appId"`
 			OpenID  *string `json:"openId"`
 		}
-		if err := decode(e, &input); err != nil {
+		if err := decode(e, &input, settingsBodyBytes); err != nil {
 			return err
 		}
 		if input.Enabled == nil || input.AppID == nil || input.OpenID == nil {
@@ -133,7 +147,7 @@ func Bind(group *router.RouterGroup[*core.RequestEvent]) {
 			OTP     *bool `json:"otp"`
 			Captcha *bool `json:"captcha"`
 		}
-		if err := decode(e, &input); err != nil {
+		if err := decode(e, &input, settingsBodyBytes); err != nil {
 			return err
 		}
 		if input.MFA == nil || input.OTP == nil {

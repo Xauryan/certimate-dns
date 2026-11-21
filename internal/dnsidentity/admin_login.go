@@ -195,7 +195,9 @@ func verifyAdminLogin(e *core.RequestEvent) error {
 		ID   string `json:"totpId"`
 		Code string `json:"code"`
 	}
-	if err := decode(e, &input); err != nil || len(input.ID) != 48 {
+	if err := decode(e, &input, proofBodyBytes); errors.Is(err, apis.ErrRequestEntityTooLarge) {
+		return err
+	} else if err != nil || len(input.ID) != 48 {
 		return e.BadRequestError("Invalid authenticator challenge.", nil)
 	}
 	var verified *core.Record
