@@ -17,6 +17,7 @@ export default function BindingEditForm({ binding, interfaces, busy, error, onSa
   const recordName = Form.useWatch("recordName", form)?.trim() ?? binding.recordName;
   const interfaceName = Form.useWatch("interfaceName", form) ?? binding.interfaceName;
   const renamed = recordName !== binding.recordName;
+  const saveLabel = t(renamed ? "ddns.renameAndSave" : "ddns.saveBinding");
   const changed = renamed || interfaceName !== binding.interfaceName;
   const available = interfaces.some((item) => item.name === interfaceName);
   const options = interfaces.map((item) => ({ value: item.name, label: [item.name, item.mac].filter(Boolean).join(" · ") }));
@@ -51,8 +52,8 @@ export default function BindingEditForm({ binding, interfaces, busy, error, onSa
       <Form.Item name="interfaceName" label={t("ddns.interface")} rules={[{ required: true }]}>
         <Select aria-label={t("ddns.interface")} options={options} />
       </Form.Item>
-      <Button type="primary" htmlType="submit" loading={busy} disabled={!recordName || !changed || !available}>
-        {t(renamed ? "ddns.renameAndSave" : "ddns.saveBinding")}
+      <Button type="primary" htmlType="submit" loading={busy} disabled={!recordName || !changed || !available} aria-label={saveLabel}>
+        {saveLabel}
       </Button>
     </Form>
   );
