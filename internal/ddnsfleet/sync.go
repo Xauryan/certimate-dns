@@ -200,8 +200,18 @@ func (s *Service) syncCurrentBinding(parent context.Context, app core.App, id st
 	}
 	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 	defer cancel()
+	pending, err := hasBindingRename(ctx, app, id)
+	if err != nil {
+		if parent.Err() == nil {
+			app.Logger().Error("Could not verify the DDNS rename fence.")
+		}
+		return true
+	}
+	if pending {
+		return true
+	}
 	var b Binding
-	err := app.DB().Select("*").From("ddns_bindings").Where(dbx.HashExp{"id": id}).WithContext(ctx).One(&b)
+	err = app.DB().Select("*").From("ddns_bindings").Where(dbx.HashExp{"id": id}).WithContext(ctx).One(&b)
 	if err == nil {
 		s.syncBinding(ctx, app, b, findInterface(interfaces, b.InterfaceName), current)
 	} else if !errors.Is(err, sql.ErrNoRows) && parent.Err() == nil {

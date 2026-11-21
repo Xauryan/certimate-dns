@@ -12,6 +12,8 @@ class Provider:
     def __init__(self):
         self.calls = 0
         self.patches = 0
+        self.fail_readback_after_patch = False
+        self.unavailable_zone = None
         self.keys = [secrets.token_urlsafe(24) for _ in range(2)]
         # Zone identifiers can coincide in independent accounts.
         self.zones = {
@@ -42,7 +44,8 @@ def powerdns():
 
         def route(self):
             provider.calls += 1
-            zones = provider.zones.get(self.headers.get("X-API-Key"))
+            api_key = self.headers.get("X-API-Key")
+            zones = provider.zones.get(api_key)
             if zones is None:
                 return self.reply(403)
             path = unquote(urlsplit(self.path).path)
@@ -55,6 +58,8 @@ def powerdns():
             if sets is None:
                 return self.reply(404)
             if self.command == "GET":
+                if provider.unavailable_zone == (api_key, name):
+                    return self.reply(503)
                 return self.reply(200, {"id": name, "name": name, "rrsets": list(sets.values())})
 
             # Stage the changes so a failed PATCH leaves the zone intact.
@@ -85,6 +90,9 @@ def powerdns():
             except (KeyError, TypeError, ValueError):
                 return self.reply(422)
             zones[name] = updated
+            if provider.fail_readback_after_patch:
+                provider.fail_readback_after_patch = False
+                provider.unavailable_zone = (api_key, name)
             self.reply(204)
 
         do_GET = route

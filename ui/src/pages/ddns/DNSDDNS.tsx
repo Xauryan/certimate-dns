@@ -4,8 +4,10 @@ import { useRequest } from "ahooks";
 import { Alert, App, Button, Card, Descriptions, Form, Input, Modal, Popconfirm, Space, Spin, Table, Tag, Typography } from "antd";
 
 import { unwrapErrMsg } from "@/utils/error";
+import BindingEditForm from "./BindingEditForm";
 import BindingForm from "./BindingForm";
-import { type Binding, type IssuedToken, type NetworkInterface, type Node, ddnsRequest, nodePath } from "./model";
+import BindingRenameReview from "./BindingRenameReview";
+import { type Binding, type BindingEditValues, type IssuedToken, type NetworkInterface, type Node, bindingPath, ddnsRequest, nodePath } from "./model";
 
 const statusColors: Record<string, string> = {
   pending: "default",
@@ -22,14 +24,18 @@ export default function DNSDDNS() {
   const { data: nodes, loading, error, refresh } = useRequest(loadNodes, { pollingInterval: 10_000, pollingWhenHidden: false });
   const [register, setRegister] = useState(false);
   const [issued, setIssued] = useState<IssuedToken>();
-  const [bindingNodeID, setBindingNodeID] = useState<string>();
+  const [bindingEditor, setBindingEditor] = useState<{ node: Node; binding?: Binding }>();
+  const [bindingError, setBindingError] = useState("");
   const [busy, setBusy] = useState(false);
   const writing = useRef(false);
-  const bindingNode = nodes?.find((node) => node.id === bindingNodeID);
+  const bindingNode = nodes?.find((node) => node.id === bindingEditor?.node.id) ?? bindingEditor?.node;
+  const currentBinding = bindingNode?.bindings.find((row) => row.id === bindingEditor?.binding?.id) ?? bindingEditor?.binding;
+  const pendingRename = currentBinding?.pendingRename;
+  const canContinueRename = pendingRename?.submitted || bindingNode?.interfaces.some((item) => item.name === pendingRename?.interfaceName);
   const timeFormat = new Intl.DateTimeFormat(i18n.resolvedLanguage, { dateStyle: "medium", timeStyle: "short" });
   const formatTime = (value: string | null) => (value ? timeFormat.format(new Date(value)) : "—");
 
-  async function write<T>(request: () => Promise<T>, onSuccess?: (result: T) => void) {
+  async function write<T>(request: () => Promise<T>, onSuccess?: (result: T) => void, onError?: (reason: string) => void) {
     if (writing.current) return;
     writing.current = true;
     setBusy(true);
@@ -38,11 +44,43 @@ export default function DNSDDNS() {
       onSuccess?.(result);
       refresh();
     } catch (err) {
-      void message.error(unwrapErrMsg(err));
+      const reason = unwrapErrMsg(err);
+      if (onError) onError(reason);
+      else void message.error(reason);
     } finally {
       writing.current = false;
       setBusy(false);
     }
+  }
+
+  function openBinding(node: Node, binding?: Binding) {
+    setBindingError("");
+    setBindingEditor({ node, binding });
+  }
+
+  function writeBinding(request: () => Promise<unknown>) {
+    setBindingError("");
+    void write(
+      request,
+      () => setBindingEditor(undefined),
+      (reason) => {
+        setBindingError(reason);
+        refresh();
+      }
+    );
+  }
+
+  function saveBindingEdit({ recordName, interfaceName }: BindingEditValues, binding = bindingEditor?.binding) {
+    if (!bindingEditor || !binding) return;
+    const path = bindingPath(bindingEditor.node.id, binding.id);
+    writeBinding(() =>
+      ddnsRequest(path, "PUT", {
+        recordName,
+        interfaceName,
+        expectedRecordName: binding.recordName,
+        expectedInterfaceName: binding.interfaceName,
+      })
+    );
   }
 
   const interfaces = [
@@ -74,26 +112,41 @@ export default function DNSDDNS() {
       { title: t("ddns.lastAddress"), dataIndex: "lastAddress", render: (value: string) => value || "—" },
       {
         title: t("ddns.syncStatus"),
-        render: (_: unknown, row: Binding) => (
-          <>
-            <Tag color={statusColors[row.syncStatus]}>{t("ddns.sync." + row.syncStatus, { defaultValue: row.syncStatus })}</Tag>
-            {row.lastError && <div className="mt-1 wrap-break-word">{row.lastError}</div>}
-          </>
-        ),
+        render: (_: unknown, row: Binding) =>
+          row.pendingRename ? (
+            <>
+              <Tag color="warning">{t(row.pendingRename.submitted ? "ddns.renameAwaiting" : "ddns.renamePrepared")}</Tag>
+              <div className="mt-1 wrap-break-word">
+                {row.pendingRename.recordName} · {row.pendingRename.interfaceName}
+              </div>
+            </>
+          ) : (
+            <>
+              <Tag color={statusColors[row.syncStatus]}>{t("ddns.sync." + row.syncStatus, { defaultValue: row.syncStatus })}</Tag>
+              {row.lastError && <div className="mt-1 wrap-break-word">{row.lastError}</div>}
+            </>
+          ),
       },
       { title: t("ddns.lastSync"), dataIndex: "updatedAt", render: formatTime },
       {
         title: t("dns.actions"),
-        render: (_: unknown, row: Binding) => (
-          <Popconfirm
-            title={t("ddns.confirmUnbind")}
-            onConfirm={() => write(() => ddnsRequest(nodePath(node.id) + "/bindings/" + encodeURIComponent(row.id), "DELETE"))}
-          >
-            <Button danger disabled={busy}>
-              {t("ddns.unbind")}
+        render: (_: unknown, row: Binding) =>
+          row.pendingRename ? (
+            <Button disabled={busy} onClick={() => openBinding(node, row)}>
+              {t("ddns.reviewRename")}
             </Button>
-          </Popconfirm>
-        ),
+          ) : (
+            <Space wrap>
+              <Button disabled={busy} onClick={() => openBinding(node, row)}>
+                {t("ddns.editBinding")}
+              </Button>
+              <Popconfirm title={t("ddns.confirmUnbind")} onConfirm={() => write(() => ddnsRequest(bindingPath(node.id, row.id), "DELETE"))}>
+                <Button danger disabled={busy}>
+                  {t("ddns.unbind")}
+                </Button>
+              </Popconfirm>
+            </Space>
+          ),
       },
     ];
   }
@@ -147,7 +200,7 @@ export default function DNSDDNS() {
               <Typography.Title level={5} className="m-0!">
                 {t("ddns.bindings")}
               </Typography.Title>
-              <Button disabled={busy || !node.interfaces.length} onClick={() => setBindingNodeID(node.id)}>
+              <Button disabled={busy || !node.interfaces.length} onClick={() => openBinding(node)}>
                 {t("ddns.bind")}
               </Button>
             </Space>
@@ -207,27 +260,49 @@ export default function DNSDDNS() {
         </Form>
       </Modal>
       <Modal
-        title={t("ddns.bind")}
-        open={Boolean(bindingNode)}
+        title={t(pendingRename ? "ddns.reviewRename" : bindingEditor?.binding ? "ddns.editBinding" : "ddns.bind")}
+        open={Boolean(bindingEditor)}
         footer={null}
         destroyOnHidden
         closable={!busy}
         mask={{ closable: false }}
-        onCancel={() => !busy && setBindingNodeID(undefined)}
+        onCancel={() => !busy && setBindingEditor(undefined)}
       >
-        {bindingNode && (
-          <BindingForm
-            key={bindingNode.id}
-            interfaces={bindingNode.interfaces}
-            busy={busy}
-            onBind={(target) =>
-              write(
-                () => ddnsRequest(nodePath(bindingNode.id) + "/bindings", "POST", target),
-                () => setBindingNodeID(undefined)
-              )
-            }
-          />
-        )}
+        {bindingNode &&
+          (pendingRename && currentBinding ? (
+            <BindingRenameReview
+              rename={pendingRename}
+              canContinue={Boolean(canContinueRename)}
+              busy={busy}
+              error={bindingError}
+              onCheck={() => saveBindingEdit(pendingRename, currentBinding)}
+              onCancel={() => writeBinding(() => ddnsRequest(bindingPath(bindingNode.id, currentBinding.id) + "/rename", "DELETE"))}
+              onConfirmRecord={(recordId) =>
+                writeBinding(() => ddnsRequest(bindingPath(bindingNode.id, currentBinding.id) + "/rename/confirm", "POST", { recordId }))
+              }
+            />
+          ) : bindingEditor?.binding ? (
+            <BindingEditForm
+              key={bindingEditor.binding.id}
+              binding={bindingEditor.binding}
+              interfaces={bindingNode.interfaces}
+              busy={busy}
+              error={bindingError}
+              onSave={saveBindingEdit}
+            />
+          ) : (
+            <BindingForm
+              key={bindingNode.id}
+              interfaces={bindingNode.interfaces}
+              busy={busy}
+              onBind={(target) =>
+                write(
+                  () => ddnsRequest(nodePath(bindingNode.id) + "/bindings", "POST", target),
+                  () => setBindingEditor(undefined)
+                )
+              }
+            />
+          ))}
       </Modal>
       <Modal title={t("ddns.token")} open={Boolean(issued)} footer={null} destroyOnHidden mask={{ closable: false }} onCancel={() => setIssued(undefined)}>
         {issued && (

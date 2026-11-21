@@ -21,9 +21,12 @@ from powerdns_fixture import powerdns
 NODES = "/api/ddns/nodes"
 REPORT = "/api/ddns/report"
 HOST = "host.shared.test"
+RENAMED_HOST = "renamed.shared.test"
+KEEP_HOST = "keep.shared.test"
 INTERFACE = "test-ethernet"
+SECOND_INTERFACE = "test-failover"
 MAC = "02:12:34:56:78:9a"
-IPV4 = ("198.18.1.10", "198.18.1.20", "198.18.1.30")
+IPV4 = ("198.18.1.10", "198.18.1.20", "198.18.1.30", "198.18.1.40")
 IPV6 = ("2001:2::10", "2001:2::20", "2001:2::30")
 
 
@@ -92,9 +95,11 @@ def run_agent(exe, directory, api, token):
         subprocess.run(command, check=True, timeout=15, env={**env, "SSL_CERT_FILE": str(root)})
 
 
-def snapshot(index, hostname="ddns-vm"):
-    return {"hostname": hostname, "interfaces": [{"name": INTERFACE, "mac": MAC,
-                                                 "ipv4": [IPV4[index]], "ipv6": [IPV6[index]]}]}
+def snapshot(index, second_ipv4=()):
+    return {"hostname": "ddns-vm", "interfaces": [
+        {"name": INTERFACE, "mac": MAC, "ipv4": [IPV4[index]], "ipv6": [IPV6[index]]},
+        {"name": SECOND_INTERFACE, "mac": "", "ipv4": list(second_ipv4), "ipv6": []},
+    ]}
 
 
 def read_fleet(api, provider, *tokens):
@@ -105,16 +110,17 @@ def read_fleet(api, provider, *tokens):
     return {node["id"]: node for node in nodes}
 
 
-def wait_for_sync(api, provider, node_id, index, *tokens):
+def wait_for_sync(api, provider, node_id, expected, *tokens):
     deadline = time.monotonic() + 35
     statuses = {}
     while time.monotonic() < deadline:
         bindings = read_fleet(api, provider, *tokens)[node_id]["bindings"]
-        observed = {binding["recordType"]: binding["lastAddress"] for binding in bindings
+        observed = {(binding["recordName"], binding["recordType"]): binding["lastAddress"] for binding in bindings
                     if binding["syncStatus"] == "synced"}
-        if observed == {"A": IPV4[index], "AAAA": IPV6[index]}:
-            return
-        statuses = {binding["recordType"]: (binding["syncStatus"], binding["lastError"]) for binding in bindings}
+        if observed == expected:
+            return bindings
+        statuses = {binding["recordName"] + " " + binding["recordType"]:
+                    (binding["syncStatus"], binding["lastError"]) for binding in bindings}
         time.sleep(0.25)
     raise AssertionError(f"the DDNS worker did not confirm both provider updates ({statuses})")
 
@@ -161,7 +167,7 @@ def exercise(api, provider, agent, directory):
     zone, = [item for item in inventory if item["name"] == "shared.test"]
     record_path = records(access, zone["zoneId"])
     seed = ((HOST, "A", IPV4[0], 400), (HOST, "AAAA", IPV6[0], 600),
-            ("keep.shared.test", "A", IPV4[0], 800), (HOST, "TXT", "retained answer", 900))
+            (KEEP_HOST, "A", IPV4[1], 800), (HOST, "TXT", "retained answer", 900))
     for name, record_type, address, ttl in seed:
         api.api("POST", record_path, admin, {"name": name, "type": record_type, "content": address, "ttl": ttl})
     original = {(row["name"], row["type"]): row for row in api.api("GET", record_path, admin)["result"]}
@@ -181,16 +187,17 @@ def exercise(api, provider, agent, directory):
         check((binding["recordName"], binding["recordType"], binding["interfaceName"]) ==
               (HOST, record_type, INTERFACE), "DDNS binding points to a different record or interface")
 
-    def assert_provider(index):
+    def assert_provider(expected):
         rows = api.api("GET", record_path, admin)["result"]
-        actual = {(row["name"], row["type"]): (row["content"], row["ttl"]) for row in rows}
-        expected = {key: (row["content"], row["ttl"]) for key, row in original.items()}
-        expected[HOST, "A"] = (IPV4[index], original[HOST, "A"]["ttl"])
-        expected[HOST, "AAAA"] = (IPV6[index], original[HOST, "AAAA"]["ttl"])
+        records_by_owner = {(row["name"], row["type"]): row for row in rows}
+        actual = {key: (row["content"], row["ttl"]) for key, row in records_by_owner.items()}
         check(len(rows) == len(expected) and actual == expected, "provider content, TTL or unbound records changed unexpectedly")
+        return records_by_owner
 
-    wait_for_sync(api, provider, node_id, 1, token)
-    assert_provider(1)
+    initial = {(HOST, "A"): IPV4[1], (HOST, "AAAA"): IPV6[1]}
+    wait_for_sync(api, provider, node_id, initial, token)
+    expected = {key: (initial.get(key, row["content"]), row["ttl"]) for key, row in original.items()}
+    assert_provider(expected)
     other = api.pb("POST", NODES, admin, {"name": "Second node"}, expected=201)
     other_token = other["token"]
     other_path = f"{NODES}/{other['id']}"
@@ -201,23 +208,73 @@ def exercise(api, provider, agent, directory):
     active_a, = [binding for binding in nodes[node_id]["bindings"] if binding["recordType"] == "A"]
     api.pb("POST", other_path + "/bindings", admin,
            {**selection("A"), "recordId": active_a["recordId"]}, expected=409)
+
+    edit_path = f"{binding_path}/{active_a['id']}"
+    target = {"recordName": RENAMED_HOST, "interfaceName": SECOND_INTERFACE,
+              "expectedRecordName": HOST, "expectedInterfaceName": INTERFACE}
+    for credential in (None, member, f"Bearer {token}"):
+        status, _ = api.request("PUT", edit_path, credential, target)
+        check(status in (401, 403), "a non-administrator could modify a DDNS binding")
+    api.pb("PUT", f"{other_path}/bindings/{active_a['id']}", admin, target, expected=404)
+    api.pb("PUT", edit_path, admin, {**target, "recordName": KEEP_HOST}, expected=409)
+    persisted_a, = [binding for binding in read_fleet(api, provider, token)[node_id]["bindings"]
+                    if binding["id"] == active_a["id"]]
+    check((persisted_a["recordId"], persisted_a["recordName"], persisted_a["interfaceName"]) ==
+          (active_a["recordId"], HOST, INTERFACE), "a rejected edit changed or removed the original binding")
+    assert_provider(expected)
     api.pb("DELETE", other_path, admin, expected=204)
 
     rotated = api.pb("POST", node_path + "/rotate", admin)
     new_token = rotated["token"]
     check(rotated["id"] == node_id and new_token != token, "rotation did not preserve the node and change its token")
     check(not read_fleet(api, provider, token, new_token)[node_id]["online"], "rotation kept the old report active")
+    before = provider.patches
+    provider.fail_readback_after_patch = True
+    try:
+        reason = api.pb("PUT", edit_path, admin, target, expected=409)
+        check("could not be confirmed" in reason["message"].lower() and provider.patches == before + 1,
+              "the acknowledged DNS write was not reported as pending when readback failed")
+        pending, = [binding for binding in read_fleet(api, provider, token, new_token)[node_id]["bindings"]
+                    if binding["id"] == active_a["id"]]
+        check(pending["recordId"] == active_a["recordId"] and pending["recordName"] == HOST and pending["interfaceName"] == INTERFACE and
+              pending.get("pendingRename") == {"recordName": RENAMED_HOST, "interfaceName": SECOND_INTERFACE, "submitted": True},
+              "the pending rename and the original binding were not both visible after readback failed")
+    finally:
+        provider.fail_readback_after_patch = False
+        provider.unavailable_zone = None
+
+    edited = api.pb("PUT", edit_path, admin, target)
+    check(provider.patches == before + 1 and not edited.get("pendingRename"),
+          "confirming the pending rename dispatched a duplicate provider write or left it pending")
+    expected[RENAMED_HOST, "A"] = expected.pop((HOST, "A"))
+    renamed = assert_provider(expected)[RENAMED_HOST, "A"]
+    check((edited["id"], edited["recordId"], edited["recordName"], edited["interfaceName"]) ==
+          (active_a["id"], renamed["id"], RENAMED_HOST, SECOND_INTERFACE) and renamed["id"] != active_a["recordId"],
+          "renaming did not preserve the binding ID and point it at the new provider identity")
+    check(edited["syncStatus"] == "pending" and not edited["lastAddress"],
+          "the edited interface kept the previous interface's synchronization state")
+    before = provider.patches
+    replay = api.pb("PUT", edit_path, admin, target)
+    check(replay["id"] == edited["id"] and provider.patches == before, "retrying an applied rename wrote DNS again")
+    api.pb("PUT", edit_path, admin, {**target, "recordName": "stale.shared.test"}, expected=409)
+    assert_provider(expected)
     api.pb("POST", REPORT, f"Bearer {token}", snapshot(2), expected=401)
-    api.pb("POST", REPORT, f"Bearer {new_token}", snapshot(2), expected=204)
-    wait_for_sync(api, provider, node_id, 2, token, new_token)
-    assert_provider(2)
+    api.pb("POST", REPORT, f"Bearer {new_token}", snapshot(2, second_ipv4=(IPV4[3],)), expected=204)
+    rebound = {(RENAMED_HOST, "A"): IPV4[3], (HOST, "AAAA"): IPV6[2]}
+    bindings = wait_for_sync(api, provider, node_id, rebound, token, new_token)
+    for key, content in rebound.items():
+        expected[key] = (content, expected[key][1])
+    synced = assert_provider(expected)[RENAMED_HOST, "A"]
+    active_edited, = [binding for binding in bindings if binding["id"] == edited["id"]]
+    check(active_edited["recordId"] == synced["id"] and active_edited["interfaceName"] == SECOND_INTERFACE,
+          "the worker did not persist the new record identity and interface after publishing")
     api.pb("PATCH", node_path, admin, {"enabled": False}, expected=204)
     api.pb("POST", REPORT, f"Bearer {new_token}", snapshot(0), expected=401)
     check(not read_fleet(api, provider, token, new_token)[node_id]["online"], "disabled node was still online")
     api.pb("DELETE", node_path, admin, expected=204)
     api.pb("POST", REPORT, f"Bearer {new_token}", snapshot(0), expected=401)
     check(not read_fleet(api, provider, token, new_token), "deleted DDNS node remained visible")
-    assert_provider(2)
+    assert_provider(expected)
 
 
 def main():
@@ -229,7 +286,7 @@ def main():
         directory = Path(tmp)
         with serve(args.binary.resolve(), directory / "server", secrets.token_urlsafe(29)) as api:
             exercise(api, provider, args.agent.resolve(), directory)
-    print("PASS DDNS agent, device authorization and bound PowerDNS A/AAAA synchronization", flush=True)
+    print("PASS DDNS agent, binding edits, device authorization and PowerDNS A/AAAA synchronization", flush=True)
 
 
 if __name__ == "__main__":

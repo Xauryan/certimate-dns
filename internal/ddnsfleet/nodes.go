@@ -229,9 +229,17 @@ func (s *Service) rotateNode(e *core.RequestEvent) error {
 }
 
 func (s *Service) deleteNode(e *core.RequestEvent) error {
+	ctx, id := e.Request.Context(), e.Request.PathValue("id")
 	s.mutations.Lock()
 	defer s.mutations.Unlock()
-	res, err := e.App.DB().Delete("ddns_nodes", dbx.HashExp{"id": e.Request.PathValue("id")}).WithContext(e.Request.Context()).Execute()
+	renaming, err := hasSubmittedRename(ctx, e.App, id, "")
+	if err != nil {
+		return e.InternalServerError("Could not verify the DDNS node bindings.", nil)
+	}
+	if renaming {
+		return e.Error(http.StatusConflict, "A submitted DDNS rename must be resolved before deleting the node.", nil)
+	}
+	res, err := e.App.DB().Delete("ddns_nodes", dbx.HashExp{"id": id}).WithContext(ctx).Execute()
 	if err := nodeMutationResult(res, err); err != nil {
 		return nodeMutationError(e, err)
 	}
