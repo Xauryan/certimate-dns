@@ -74,7 +74,7 @@ func verifyAdminFactor(tx core.App, id string, code string, required bool) error
 }
 
 func bindAdminAuth(api *router.RouterGroup[*core.RequestEvent]) {
-	group := api.Group("/dns-identity/admin").Bind(apis.BodyLimit(4096))
+	group := api.Group("/dns-identity/admin").Bind(apis.BodyLimit(proofBodyBytes))
 	group.BindFunc(func(e *core.RequestEvent) error {
 		e.Response.Header().Set("Cache-Control", "no-store")
 		return e.Next()
@@ -145,7 +145,7 @@ func setAdminPolicy(e *core.RequestEvent) error {
 		Code     string `json:"code"`
 		Captcha  *bool  `json:"captcha"`
 	}
-	if err := decode(e, &input); err != nil {
+	if err := decode(e, &input, proofBodyBytes); err != nil {
 		return err
 	}
 	if input.Captcha == nil {
@@ -172,7 +172,7 @@ func changeAdminPassword(e *core.RequestEvent) error {
 		NewPassword     string `json:"newPassword"`
 		PasswordConfirm string `json:"passwordConfirm"`
 	}
-	if err := decode(e, &input); err != nil {
+	if err := decode(e, &input, proofBodyBytes); err != nil {
 		return err
 	}
 	if input.NewPassword != input.PasswordConfirm || len(input.NewPassword) < 10 || len(input.NewPassword) > 72 {
@@ -198,7 +198,7 @@ type adminCredentials struct {
 
 func generateAdminTOTP(e *core.RequestEvent) error {
 	var input adminCredentials
-	if err := decode(e, &input); err != nil {
+	if err := decode(e, &input, proofBodyBytes); err != nil {
 		return err
 	}
 	key := keyForTOTP(e.App)
@@ -232,7 +232,7 @@ func generateAdminTOTP(e *core.RequestEvent) error {
 
 func bindAdminTOTP(e *core.RequestEvent) error {
 	var input adminCredentials
-	if err := decode(e, &input); err != nil {
+	if err := decode(e, &input, proofBodyBytes); err != nil {
 		return err
 	}
 	err := runAdminOperation(e, input.Password, func(tx core.App, r *core.Record) error {
@@ -271,7 +271,7 @@ func bindAdminTOTP(e *core.RequestEvent) error {
 
 func removeAdminTOTP(e *core.RequestEvent) error {
 	var input adminCredentials
-	if err := decode(e, &input); err != nil {
+	if err := decode(e, &input, proofBodyBytes); err != nil {
 		return err
 	}
 	err := runAdminOperation(e, input.Password, func(tx core.App, r *core.Record) error {

@@ -142,7 +142,7 @@ func revokeAuthSessions(app core.App, r *core.Record) error {
 }
 
 func bindTOTP(api *router.RouterGroup[*core.RequestEvent]) {
-	member := api.Group("/dns-identity/member").Bind(apis.RequireAuth(dnsauth.Members), apis.BodyLimit(4096))
+	member := api.Group("/dns-identity/member").Bind(apis.RequireAuth(dnsauth.Members), apis.BodyLimit(proofBodyBytes))
 	member.GET("/totp", func(e *core.RequestEvent) error {
 		var active bool
 		err := e.App.DB().NewQuery(`SELECT EXISTS (SELECT 1 FROM dns_member_totp WHERE member={:id} AND active=1)`).Bind(dbx.Params{"id": e.Auth.Id}).Row(&active)
@@ -155,7 +155,7 @@ func bindTOTP(api *router.RouterGroup[*core.RequestEvent]) {
 		var input struct {
 			Password string `json:"password"`
 		}
-		if err := decode(e, &input); err != nil {
+		if err := decode(e, &input, proofBodyBytes); err != nil {
 			return err
 		}
 		if !e.Auth.ValidatePassword(input.Password) {
@@ -196,7 +196,7 @@ func bindTOTP(api *router.RouterGroup[*core.RequestEvent]) {
 				Password string `json:"password"`
 				Code     string `json:"code"`
 			}
-			if err := decode(e, &input); err != nil {
+			if err := decode(e, &input, proofBodyBytes); err != nil {
 				return err
 			}
 			if !e.Auth.ValidatePassword(input.Password) {

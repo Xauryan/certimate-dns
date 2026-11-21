@@ -39,7 +39,7 @@ func httpsEndpoint(s string) bool {
 
 func saveOIDC(e *core.RequestEvent) error {
 	var s oidcSettings
-	if err := decode(e, &s); err != nil {
+	if err := decode(e, &s, settingsBodyBytes); err != nil {
 		return err
 	}
 	if s.Enabled && (!httpsEndpoint(s.AuthURL) || !httpsEndpoint(s.TokenURL) || !httpsEndpoint(s.UserInfoURL) || strings.TrimSpace(s.ClientID) == "") {

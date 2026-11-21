@@ -1,3 +1,7 @@
+# Certimate DNS v0.4.40
+
+- Fix administrator password changes that returned `Invalid request body.` for valid JSON over HTTP. The identity API now handles requests whose final body bytes arrive together with the end-of-stream signal.
+
 # Certimate DNS v0.4.39
 
 - Manage DDNS nodes, view interface addresses and bind existing A and AAAA records from the DNS console.
