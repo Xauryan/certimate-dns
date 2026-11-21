@@ -1,4 +1,5 @@
-﻿import nlsDNS from "./nls.dns.json";
+﻿import nlsDDNS from "./nls.ddns.json";
+import nlsDNS from "./nls.dns.json";
 import nlsDNSAuth from "./nls.dnsauth.json";
 import nlsDNSIdentity from "./nls.dnsidentity.json";
 import nlsAccess from "./nls.access.json";
@@ -18,6 +19,7 @@ export default Object.freeze(
   buildTranslations(
     nlsCommon,
     nlsDNS,
+    nlsDDNS,
     nlsDNSAuth,
     nlsDNSIdentity,
     nlsLogin,

@@ -1,4 +1,4 @@
-**Certimate DNS** extends Certimate v0.4.38 with DNS account and zone management, member access, record changes, scheduled operations and certificate workflows. The provider matrix records implementation and verification status for each area. [Development setup](docs/dns-development.zh-CN.md) · [DNSMgr feature comparison](docs/dnsmgr-parity.zh-CN.md) · [Migration guide](docs/dnsmgr-migration.zh-CN.md).
+**Certimate DNS** extends Certimate v0.4.38 with DNS account and zone management, member access, record changes, scheduled operations, DDNS node reporting and certificate workflows. The provider matrix records implementation and verification status for each area. [Development setup](docs/dns-development.zh-CN.md) · [DNSMgr feature comparison](docs/dnsmgr-parity.zh-CN.md) · [Migration guide](docs/dnsmgr-migration.zh-CN.md) · [DDNS node setup](cmd/ddns-agent-native/README.md).
 
 <h1 align="center">🔒 Certimate</h1>
 

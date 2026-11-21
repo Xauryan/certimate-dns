@@ -244,7 +244,8 @@ func CountDomains(ctx context.Context, app core.App) (int, error) {
 const dueClause = ` AND z.present=1 AND d.disabled=0 AND z.reminderEnabled=1 AND z.expiresOn<>''
 AND date(z.expiresOn) <= date({:today}, '+' || cast(z.reminderDays AS integer) || ' days')`
 
-func listDomains(ctx context.Context, app core.App, f Filter, now time.Time) (Page, error) {
+// AdminListDomains lists catalog zones for trusted operators, including inactive zones.
+func AdminListDomains(ctx context.Context, app core.App, f Filter, now time.Time) (Page, error) {
 	result := Page{Items: []Domain{}}
 	if f.Page <= 0 || f.Page > 10000000 {
 		return result, domain.ErrInvalidParams

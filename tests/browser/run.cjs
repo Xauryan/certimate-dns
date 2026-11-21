@@ -4,6 +4,7 @@ const { withConsole } = require("./serve-console.cjs");
 
 const fixtures = [
   "dns-records.cjs",
+  "ddns.cjs",
   "dns-accounts.cjs",
   "dns-interface-keys.cjs",
   "certificate-orders.cjs",

@@ -16,7 +16,7 @@ CGO_ENABLED=0 go build -mod=readonly -trimpath -o dist/certimate .
 ./dist/certimate serve --dir ./pb_data --http 127.0.0.1:8090
 ```
 
-浏览器打开 http://127.0.0.1:8090/ 。健康检查在 /api/health。CI 在 GitHub 托管的标准 ubuntu-26.04 x64 机器上构建相同的前端和 Go 可执行文件。进程测试打开临时空库，并从 v0.4.38 的数据库升级后检查会话、工作流、跨域权限、批量变更及重启恢复。CI 的权限为读取仓库内容，测试使用本地数据。
+浏览器打开 http://127.0.0.1:8090/ 。健康检查在 /api/health。CI 在 GitHub 托管的标准 ubuntu-24.04 x64 机器上构建相同的前端和 Go 可执行文件。进程测试打开临时空库，并从 v0.4.38 的数据库升级后检查会话、工作流、跨域权限、批量变更及重启恢复。DDNS 进程测试使用本地 HTTPS 和 PowerDNS 模拟器。CI 的权限为读取仓库内容，测试使用本地数据。
 
 前端锁文件中的 tarball URL 采用 `registry.npmmirror.com`。上述命令和源码 Dockerfile 使用 npm 当前配置的 registry 下载这些包，并按锁文件校验完整性。
 
