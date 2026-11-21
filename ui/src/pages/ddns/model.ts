@@ -17,13 +17,22 @@ export type BindingTarget = {
 
 export type Binding = BindingTarget & {
   id: string;
+  zoneName: string;
   recordName: string;
   recordType: string;
   lastAddress: string;
   syncStatus: string;
   lastError: string;
   updatedAt: string | null;
+  pendingRename?: {
+    recordName: string;
+    interfaceName: string;
+    submitted: boolean;
+    candidateRecordId?: string;
+  };
 };
+
+export type BindingEditValues = Pick<Binding, "recordName" | "interfaceName">;
 
 export type Node = {
   id: string;
@@ -44,4 +53,8 @@ export function ddnsRequest<T>(path: string, method = "GET", body?: object) {
 
 export function nodePath(id: string) {
   return "/" + encodeURIComponent(id);
+}
+
+export function bindingPath(nodeId: string, bindingId: string) {
+  return nodePath(nodeId) + "/bindings/" + encodeURIComponent(bindingId);
 }

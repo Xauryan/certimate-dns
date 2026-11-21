@@ -69,7 +69,8 @@ func (p *bindingProvider) ReplaceDNSRecord(_ context.Context, _ string, prior dn
 	return "", errors.New("unexpected record")
 }
 
-func TestBindingWorkerVerifiesWritesAndThrottlesIdleAndFailures(t *testing.T) {
+func newBindingTestApp(t *testing.T) *core.BaseApp {
+	t.Helper()
 	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
 	if err := app.Bootstrap(); err != nil {
 		t.Fatal(err)
@@ -78,32 +79,38 @@ func TestBindingWorkerVerifiesWritesAndThrottlesIdleAndFailures(t *testing.T) {
 	if err := app.RunAppMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	return app
+}
 
+func newBindingTestAccount(t *testing.T, app core.App, p dns.Provider, name string) string {
+	t.Helper()
+	accesses, err := app.FindCollectionByNameOrId("access")
+	if err != nil {
+		t.Fatal(err)
+	}
+	access := core.NewRecord(accesses)
+	access.Set("name", name)
+	access.Set("provider", "powerdns")
+	access.Set("config", map[string]string{"value": "test-only"})
+	if err := app.Save(access); err != nil {
+		t.Fatal(err)
+	}
+	discover := func(context.Context, string, string, bool) (dns.Provider, error) { return p, nil }
+	if n, err := dnscatalog.ImportZones(t.Context(), app, access.Id, []string{"zone"}, discover); err != nil || n != 1 {
+		t.Fatalf("import: %d, %v", n, err)
+	}
+	return access.Id
+}
+
+func TestBindingWorkerVerifiesWritesAndThrottlesIdleAndFailures(t *testing.T) {
+	app := newBindingTestApp(t)
 	p := &bindingProvider{records: []dns.DNSRecord{
 		{ID: "anchor", Name: "*.example.test", Type: "A", Content: "192.0.2.4", TTL: 300, Line: "isp", Proxied: true, Description: "keep"},
 		{ID: "sibling", Name: "*.example.test", Type: "A", Content: "192.0.2.5", TTL: 300, Line: "isp", Proxied: true},
 		{ID: "protected", Name: "other.example.test", Type: "A", Content: "192.0.2.21", TTL: 300, ReadOnly: true},
 	}}
-	accesses, err := app.FindCollectionByNameOrId("access")
-	if err != nil {
-		t.Fatal(err)
-	}
-	createAccount := func(name string) string {
-		t.Helper()
-		access := core.NewRecord(accesses)
-		access.Set("name", name)
-		access.Set("provider", "powerdns")
-		access.Set("config", map[string]string{"value": "test-only"})
-		if err := app.Save(access); err != nil {
-			t.Fatal(err)
-		}
-		discover := func(context.Context, string, string, bool) (dns.Provider, error) { return p, nil }
-		if n, err := dnscatalog.ImportZones(t.Context(), app, access.Id, []string{"zone"}, discover); err != nil || n != 1 {
-			t.Fatalf("import: %d, %v", n, err)
-		}
-		return access.Id
-	}
-	accessA, accessB := createAccount("first"), createAccount("alias")
+	accessA := newBindingTestAccount(t, app, p, "first")
+	accessB := newBindingTestAccount(t, app, p, "alias")
 	for _, nodeID := range []string{"client-a", "client-b"} {
 		if _, err := app.DB().Insert("ddns_nodes", dbx.Params{
 			"id": nodeID, "name": nodeID, "token_hash": hashToken(nodeID),

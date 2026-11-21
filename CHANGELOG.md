@@ -1,3 +1,7 @@
+# Certimate DNS v0.4.41
+
+- Edit a DDNS binding in the console to rename its A or AAAA record within the same DNS zone, or select another reported interface. Certimate verifies the provider change and keeps the binding attached to the renamed record.
+
 # Certimate DNS v0.4.40
 
 - Fix administrator password changes that returned `Invalid request body.` for valid JSON over HTTP. The identity API now handles requests whose final body bytes arrive together with the end-of-stream signal.
